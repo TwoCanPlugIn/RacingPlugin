@@ -64,7 +64,7 @@ int RacingPlugin::Init(void) {
 	parentWindow = GetOCPNCanvasWindow();
 
 	// Maintain a reference to the OpenCPN configuration object 
-	// Not used, however could have a preference for the display units (metres, yards) and count down time (5 minutes etc.)
+	// Not used, however could have a preference for the count down time (5 minutes etc.)
 	configSettings = GetOCPNConfigObject();
 
 	// Load plugin icons
@@ -76,11 +76,11 @@ int RacingPlugin::Init(void) {
 	wxString toggledIcon = shareLocn + _T("racing_icon_toggled.svg");
 	wxString rolloverIcon = shareLocn + _T("racing_icon_rollover.svg");
 
-	// BUG BUG Change for OpenCPN 5.0
+	// Insert the toolbar icon
 	racingToolbar = InsertPlugInToolSVG(_T(""), normalIcon, rolloverIcon, toggledIcon, wxITEM_CHECK, _("Race Start Display"), _T(""), NULL, -1, 0, this);
 
-	// Wire up the Dialog Close event
-	// BUG BUG For some reason couldn't use wxAUI (Advanced User Interface), casting bug ??)
+	// Wire up the event handler to receive events from the race start dialog
+	// BUG BUG For some reason couldn't use wxAUI (Advanced User Interface), casting error ) to handle the close event  ??
 	Connect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
 
 	racingWindowVisible = false;
@@ -167,10 +167,6 @@ void RacingPlugin::OnToolbarToolCallback(int id) {
 		delete racingWindow;
 		SetToolbarItemState(id, racingWindowVisible);
 	}
-
-	// BUG BUG Investigating.
-	wxLogMessage(_T("*** Distance Unit: %s"), getUsrDistanceUnit_Plugin(-1));
-	wxLogMessage(_T("*** Speed Unit: %s"), getUsrSpeedUnit_Plugin(-1));
 }
 
 // Handle events from the Race Start Dialog
@@ -193,8 +189,8 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent &event) {
 			waypoint.m_MarkName = _T("Starboard");
 			starboardMarkGuid = GetNewGUID();
 			waypoint.m_GUID = starboardMarkGuid;
-			waypoint.m_lat = 43.75847; // currentLatitude
-			waypoint.m_lon = 7.49575; // currentLongitude
+			waypoint.m_lat = currentLatitude; // Test data 43.75847; 
+			waypoint.m_lon = currentLongitude; // Test data 7.49575; 
 			AddSingleWaypoint(&waypoint, false);
 			break;
 		}
@@ -204,8 +200,8 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent &event) {
 			waypoint.m_MarkName = _T("Port");
 			portMarkGuid = GetNewGUID();
 			waypoint.m_GUID = portMarkGuid;
-			waypoint.m_lat = 43.757188; // currentLatitude
-			waypoint.m_lon = 7.497963; // currentLongitude
+			waypoint.m_lat = currentLatitude; // Test data 43.757188; 
+			waypoint.m_lon = currentLongitude; // Test data 7.497963;
 			AddSingleWaypoint(&waypoint, false);
 			break;
 		}

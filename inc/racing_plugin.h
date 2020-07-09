@@ -34,7 +34,7 @@
 
 // What version of the OpenCPN plugin API does this plugin support
 #define     OPENCPN_API_VERSION_MAJOR    1
-#define     OPENCPN_API_VERSION_MINOR    8
+#define     OPENCPN_API_VERSION_MINOR    16
 
 // OpenCPN include file
 #include "ocpn_plugin.h"

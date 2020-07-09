@@ -29,6 +29,8 @@
 // BUG BUG DEBUG - Logging
 #include <wx/log.h>
 
+#include <algorithm>
+
 // image for dialog icon
 extern wxBitmap *_img_racing_logo_32;
 

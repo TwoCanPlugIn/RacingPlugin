@@ -31,6 +31,8 @@
 #include "racing_dialogbase.h"
 
 
+#include <algorithm>
+
 #include <wx/timer.h>
 
 #include <wx/log.h>

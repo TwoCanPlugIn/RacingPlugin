@@ -159,7 +159,7 @@ set(OCPNHDRS ocpninclude/ocpn_plugin.h ocpninclude/pluginmanager.h ocpninclude/T
 #include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpnsrc/lz4)
 #include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpnsrc/bitmaps)
 
-INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/inc ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/nmea0183 ${CMAKE_SOURCE_DIR}/img)
+INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/inc ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/img)
 
 SET(SRC_RACING
             src/racing_icons.cpp
@@ -174,35 +174,11 @@ SET(SRC_RACING
             inc/racing_window.h
             src/racing_windowbase.cpp
             inc/racing_windowbase.h
-            src/racing_toolbox.cpp
-            inc/racing_toolbox.h
-            src/racing_toolboxbase.cpp
-            inc/racing_toolboxbase.h
-            src/iirfilter.cpp
-            inc/iirfilter.h
             inc/version.h
  	)
 
-SET(SRC_NMEA0183
-    src/nmea0183/nmea0183.cpp
-    src/nmea0183/nmea0183.hpp
-    src/nmea0183/response.hpp
-    src/nmea0183/response.cpp
-    src/nmea0183/sentence.hpp
-    src/nmea0183/sentence.cpp
-    src/nmea0183/talkerid.cpp
-    src/nmea0183/hexvalue.cpp
-    src/nmea0183/expid.cpp
-    src/nmea0183/mwv.hpp
-    src/nmea0183/mwv.cpp
-    src/nmea0183/vhw.hpp
-    src/nmea0183/vhw.cpp
-    src/nmea0183/hdg.cpp
-    src/nmea0183/hdg.hpp
-)
 
-
-ADD_LIBRARY(${PACKAGE_NAME} SHARED ${SRC_RACING} ${SRC_NMEA0183} )
+ADD_LIBRARY(${PACKAGE_NAME} SHARED ${SRC_RACING} )
 
 
 ##

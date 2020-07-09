@@ -1,31 +1,165 @@
-##---------------------------------------------------------------------------
-## Author:      Steven Adler (based on standard OpenCPN Plug-In CMAKE commands)
-## Copyright:   2020
-## License:     GPL v3+
-##---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Author:      Steven Adler based on (jongough aka. Jon Gough) Copyright: License:     wxWidgets License
+# ---------------------------------------------------------------------------
+
+## ----- When changing this file do NOT change the order in which sections occur        ----- ##
+## ----- Changes should only be made between the section blocks that identify where     ----- ##
+## ----- these changes should be. The whole configuration process relies on this        ----- ##
+## ----- sequence to be successful                                                      ----- ##
+##
+
+##
+## ----- Modify section below to include all the details for your plugin ----- ##
+##
+
+set(CMLOC "CMakeLists: ")
 
 # define minimum cmake version
-CMAKE_MINIMUM_REQUIRED(VERSION 3.1)
+cmake_minimum_required(VERSION 3.1.1)
+if(COMMAND cmake_policy)
+    if(POLICY CMP0043)
+        cmake_policy(SET CMP0043 NEW)
+    endif(POLICY CMP0043)
+    cmake_policy(SET CMP0048 NEW)
+    if(POLICY CMP0077)
+        cmake_policy(SET CMP0077 NEW)
+    endif(POLICY CMP0077)
+endif(COMMAND cmake_policy)
 
-PROJECT(racing_pi)
+# define plugin name, owner and versions
+set(VERBOSE_NAME "racingplugin")
+set(COMMON_NAME "racingplugin")
+set(TITLE_NAME "racingplugin")
+set(PACKAGE_CONTACT "twocanplugin@hotmail.com")
+set(PACKAGE "racingplugin")
 
-SET(PACKAGE_NAME racing_pi)
-SET(VERBOSE_NAME racing)
-SET(TITLE_NAME racing)
-SET(CPACK_PACKAGE_CONTACT "TwoCanPlugin@hotmail.com")
-SET(CMAKE_BUILD_TYPE Release)
-SET(CMAKE_CXX_STANDARD 11)
+set(VERSION_MAJOR "1")
+set(VERSION_MINOR "0")
+set(VERSION_PATCH "0")
+set(VERSION_TWEAK "0")
+set(VERSION_DATE "06/07/2020")
+set(OCPN_MIN_VERSION "ov50")
+set(OCPN_API_VERSION_MAJOR "1")
+set(OCPN_API_VERSION_MINOR "16")
+set(TP_COMMENT "Release for O5 using CI")
 
-SET(PLUGIN_VERSION_MAJOR 1)
-SET(PLUGIN_VERSION_MINOR 0)
-SET(PLUGIN_VERSION_PATCH 0)
-SET(PLUGIN_VERSION_DATE "2020-03-20")
-SET(PLUGIN_NAME_SUFFIX "ov50")
+set(PARENT "opencpn")
+
+# The next line allows for setting up your own local webserver with git on it for testing purposes, the default is github.com
+set(GIT_REPOSITORY_SERVER "github.com")
+
+# Specifies cloudsmith repository sufficies
+set(PROD "prod") # Standard Repos
+set(BETA "beta") # Standard Repos
+set(ALPHA "alpha") # Standard Repos
+
+set(CLOUDSMITH_USER "steven-adler")
+# set this if your cloudsmith repository name does not match your git repository name 
+set(CLOUDSMITH_BASE_REPOSITORY "racingplugin")
+
+set(XML_INFO_URL "https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:developer_manual:plugins:beta_plugins:twocan_pi")
+set(XML_SUMMARY "TwoCan, An OpenCPN plugin that integrates NMEA 2000 networks")
+set(XML_DESCRIPTION "TwoCan, An OpenCPN plugin that integrates NMEA 2000 networks")
+
+##
+## ----- Modify section above to include all the details for your plugin ----- ##
+##
+
+##
+## ----- Modify section below if there are special requirements for the plugin ----- ##
+##
+
+## TwoCan does nt use/require SCG grphics
+##option(PLUGIN_USE_SVG "Use SVG graphics" ON)
+
+set(CMAKE_CXX_STANDARD 11)
+
+# Prefer libGL.so to libOpenGL.so, see CMP0072
+set(OpenGL_GL_PREFERENCE "LEGACY")
+# Don't use local version of GLU library
+set(USE_LOCAL_GLU FALSE)
+option(USE_GL "Enable OpenGL support" OFF)
+message(STATUS "${CMLOC}USE_GL: ${USE_GL}")
+
+if("${CMAKE_BUILD_TYPE}" STREQUAL "")
+    set(CMAKE_BUILD_TYPE
+        "Release"
+        CACHE STRING "Choose the type of build" FORCE)
+endif("${CMAKE_BUILD_TYPE}" STREQUAL "")
+set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "" "Debug" "Release" "RelWithDebInfo" "MinSizeRel")
+message(STATUS "${CMLOC}Build type: ${CMAKE_BUILD_TYPE}")
+
+##
+## ----- The statements below are used to setup standard variables that are required by the CMAKE process - do not remove ----- ##
+##
+
+project(${PACKAGE})
+
+include("cmake/PluginSetup.cmake")
+
+##
+## ----- The above is used to setup standard variables that are required by the CMAKE process - do not remove ----- ##
+##
+
+##
+## ----- Modify section below if there are special requirements for the plugin ----- ##
+##
+
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
+option(Plugin_CXX11 "Use c++11" OFF)
+
+##
+## ----- Modify section above if there are special requirements for the plugin ----- ##
+##
+
+##
+## ----- do not change next section - needed to configure build process ----- ##
+##
+
+include("cmake/PluginConfigure.cmake")
+
+##
+## ----- do not change section above - needed to configure build process ----- ##
+##
+
+#
+# ----- Change below to match project requirements for source, headers, etc. ----- ##
+#
+
+## TwoCan does not understand/use this definition
+##add_definitions(-DUSE_S57)
+
+set(OCPNHDRS ocpninclude/ocpn_plugin.h ocpninclude/pluginmanager.h ocpninclude/TexFont.h)
+
+##TwoCan plugin does not require external sources
+##set(EXTSRC)
+
+##set(EXTINCLUDE extinclude/nlohmann/json.hpp extinclude/ODAPI.h)
+
+##set(LIBSSRC libs/wxJSON/src/jsonreader.cpp libs/wxJSON/src/jsonval.cpp libs/wxJSON/src/jsonwriter.cpp)
+
+##TwoCan plugin does not use this
+##add_definitions(-DPLUGIN_USE_SVG)
+
+## Nor this
+##if(APPLE)
+##    option(PI_JSON_SCHEMA_VALIDATOR "Use JSON Schema validator" OFF)
+##else(APPLE)
+##    option(PI_JSON_SCHEMA_VALIDATOR "Use JSON Schema validator" ON)
+##endif(APPLE)
 
 
-INCLUDE("cmake/PluginConfigure.cmake")
+#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpninclude)
+#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/extinclude)
+#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/libs/)
+#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/libs/wx/include)
+#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpninclude/wxcurl)
+#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpninclude/wxcurl/include)
+#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpnsrc/lz4)
+#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpnsrc/bitmaps)
 
-INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/inc ${CMAKE_SOURCE_DIR}/src)
+INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/inc ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/nmea0183 ${CMAKE_SOURCE_DIR}/img)
 
 SET(SRC_RACING
             src/racing_icons.cpp
@@ -40,12 +174,49 @@ SET(SRC_RACING
             inc/racing_window.h
             src/racing_windowbase.cpp
             inc/racing_windowbase.h
+            src/racing_toolbox.cpp
+            inc/racing_toolbox.h
+            src/racing_toolboxbase.cpp
+            inc/racing_toolboxbase.h
+            src/iirfilter.cpp
+            inc/iirfilter.h
             inc/version.h
  	)
 
-ADD_LIBRARY(${PACKAGE_NAME} SHARED ${SRC_RACING} )
+SET(SRC_NMEA0183
+    src/nmea0183/nmea0183.cpp
+    src/nmea0183/nmea0183.hpp
+    src/nmea0183/response.hpp
+    src/nmea0183/response.cpp
+    src/nmea0183/sentence.hpp
+    src/nmea0183/sentence.cpp
+    src/nmea0183/talkerid.cpp
+    src/nmea0183/hexvalue.cpp
+    src/nmea0183/expid.cpp
+    src/nmea0183/mwv.hpp
+    src/nmea0183/mwv.cpp
+    src/nmea0183/vhw.hpp
+    src/nmea0183/vhw.cpp
+    src/nmea0183/hdg.cpp
+    src/nmea0183/hdg.hpp
+)
 
-INCLUDE("cmake/PluginInstall.cmake")
-INCLUDE("cmake/PluginLocalization.cmake")
-INCLUDE("cmake/PluginPackage.cmake")
 
+ADD_LIBRARY(${PACKAGE_NAME} SHARED ${SRC_RACING} ${SRC_NMEA0183} )
+
+
+##
+## ----- Change above to match project requirements ----- ##
+##
+
+##
+## ----- do not change next section - needed to configure build process ----- ##
+##
+
+include("cmake/PluginInstall.cmake")
+include("cmake/PluginLocalization.cmake")
+include("cmake/PluginPackage.cmake")
+
+##
+## ----- do not change section above - needed to configure build process ----- ##
+##

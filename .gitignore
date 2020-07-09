@@ -1,3 +1,4 @@
 build
 forms
 src/version.h
+cmake/readme.txt

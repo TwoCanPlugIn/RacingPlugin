@@ -29,12 +29,9 @@
       #include <wx/wx.h>
 #endif
 
-// Defines version numbers for this plugin
+// Defines version numbers, names etc. for this plugin
+// This is automagically constructed via version.h.in from CMakeLists.txt, personally I think this is convoluted
 #include "version.h"
-
-// What version of the OpenCPN plugin API does this plugin support
-#define     OPENCPN_API_VERSION_MAJOR    1
-#define     OPENCPN_API_VERSION_MINOR    16
 
 // OpenCPN include file
 #include "ocpn_plugin.h"
@@ -50,7 +47,7 @@ const int RACE_DIALOG_PORT = wxID_HIGHEST + 2;
 const int RACE_DIALOG_STBD = wxID_HIGHEST + 3;
 
 // The Racing plugin
-class RacingPlugin : public opencpn_plugin_18, public wxEvtHandler {
+class RacingPlugin : public opencpn_plugin_116, public wxEvtHandler {
 
 public:
 	// The constructor

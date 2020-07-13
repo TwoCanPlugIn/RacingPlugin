@@ -23,6 +23,7 @@
 // Date: 6/1/2020
 // Version History: 
 // 1.0 Initial Release
+// 1.01 - 9/7/2020, Support for OpenCPN Plugin Manager/CI/Cloudsmith stuff
 //
 
 #include "racing_plugin.h"
@@ -49,7 +50,7 @@ extern "C" DECL_EXP void destroy_pi(opencpn_plugin* p) {
 }
 
 // Constructor
-RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_18(ppimgr), wxEvtHandler() {
+RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_116(ppimgr), wxEvtHandler() {
 	
 	// Load the plugin bitmaps/icons 
 	initialize_images();
@@ -68,6 +69,8 @@ int RacingPlugin::Init(void) {
 	configSettings = GetOCPNConfigObject();
 
 	// Load plugin icons
+	wxLogMessage(_T("DEBUG *** %s"), GetPluginDataDir("racingplugin_pi"));
+
 	wxString shareLocn = *GetpSharedDataLocation() +
 	_T("plugins") + wxFileName::GetPathSeparator() +
 	_T("racing_pi") + wxFileName::GetPathSeparator() +
@@ -97,11 +100,11 @@ bool RacingPlugin::DeInit(void) {
 
 // Indicate what version of the OpenCPN Plugin API we support
 int RacingPlugin::GetAPIVersionMajor() {
-	return OPENCPN_API_VERSION_MAJOR;
+	return OCPN_API_VERSION_MAJOR;
 }
 
 int RacingPlugin::GetAPIVersionMinor() {
-	return OPENCPN_API_VERSION_MINOR;
+	return OCPN_API_VERSION_MINOR;
 }
 
 // The plugin version numbers. 
@@ -115,15 +118,16 @@ int RacingPlugin::GetPlugInVersionMinor() {
 
 // Return descriptions for the Plugin
 wxString RacingPlugin::GetCommonName() {
-	return _T("Race Start Display");
+	return _T(PLUGIN_COMMON_NAME);
 }
 
+// BUG BUG Should use XML_SUMMARY & DESCRIPTION to avoid duplication
 wxString RacingPlugin::GetShortDescription() {
-	return _T("Race Start Display, Countdown timer, distance and time to start line");
+	return _T(PLUGIN_SHORT_DESCRIPTION);
 }
 
 wxString RacingPlugin::GetLongDescription() {
-	return _T("Race Start Display, Countdown timer, distance and time to start line");
+	return _T(PLUGIN_LONG_DESCRIPTION);
 }
 
 // 32x32 pixel PNG file, use pgn2wx.pl perl script

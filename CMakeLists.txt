@@ -27,9 +27,9 @@ if(COMMAND cmake_policy)
 endif(COMMAND cmake_policy)
 
 # define plugin name, owner and versions
-set(VERBOSE_NAME "racingplugin")
-set(COMMON_NAME "racingplugin")
-set(TITLE_NAME "racingplugin")
+# set(VERBOSE_NAME "racingplugin")
+set(COMMON_NAME "Race Start Display")
+# set(TITLE_NAME "racingplugin")
 set(PACKAGE_CONTACT "twocanplugin@hotmail.com")
 set(PACKAGE "racingplugin")
 set(SHORT_DESCRIPTION "Race Start Display, A simple tool for yacht racing")

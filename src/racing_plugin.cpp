@@ -71,10 +71,14 @@ int RacingPlugin::Init(void) {
 	// Load plugin icons
 	wxLogMessage(_T("DEBUG *** %s"), GetPluginDataDir("racingplugin_pi"));
 
-	wxString shareLocn = *GetpSharedDataLocation() +
-	_T("plugins") + wxFileName::GetPathSeparator() +
-	_T("racing_pi") + wxFileName::GetPathSeparator() +
-	_T("data") + wxFileName::GetPathSeparator();
+	//wxString shareLocn = *GetpSharedDataLocation() +
+	//_T("plugins") + wxFileName::GetPathSeparator() +
+	//_T("racing_pi") + wxFileName::GetPathSeparator() +
+	//_T("data") + wxFileName::GetPathSeparator();
+
+	// BUG BUG Can we automagivcallydefine this !! ${PACKAGE} + "_pi"
+	wxString shareLocn = GetPluginDataDir("racingplugin_pi") + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
+	
 	wxString normalIcon = shareLocn + _T("racing_icon_normal.svg");
 	wxString toggledIcon = shareLocn + _T("racing_icon_toggled.svg");
 	wxString rolloverIcon = shareLocn + _T("racing_icon_rollover.svg");

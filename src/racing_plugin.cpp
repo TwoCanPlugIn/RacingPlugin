@@ -71,7 +71,7 @@ int RacingPlugin::Init(void) {
 	// Load plugin icons
 	
 	// BUG BUG Can we automagically define this !! ${PACKAGE} + "_pi"
-	wxString shareLocn = GetPluginDataDir("racingplugin_pi") + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
+	wxString shareLocn = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
 	
 	wxString normalIcon = shareLocn + _T("racing_icon_normal.svg");
 	wxString toggledIcon = shareLocn + _T("racing_icon_toggled.svg");

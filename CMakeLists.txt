@@ -26,12 +26,13 @@ if(COMMAND cmake_policy)
     endif(POLICY CMP0077)
 endif(COMMAND cmake_policy)
 
+
 # define plugin name, owner and versions
-# set(VERBOSE_NAME "racingplugin")
+set(VERBOSE_NAME "Race_Start_Display")
 set(COMMON_NAME "Race Start Display")
-# set(TITLE_NAME "racingplugin")
+set(TITLE_NAME "RACESTARTDISPLAY")
 set(PACKAGE_CONTACT "twocanplugin@hotmail.com")
-set(PACKAGE "racingplugin")
+set(PACKAGE "race_start_display")
 set(SHORT_DESCRIPTION "Race Start Display, A simple tool for yacht racing")
 set(LONG_DESCRIPTION "Race Start Display, A simple tool for yacht racing, Displays countdown timer, distance and time to start line") 
 set(VERSION_MAJOR "1")
@@ -78,6 +79,7 @@ set(USE_LOCAL_GLU FALSE)
 option(USE_GL "Enable OpenGL support" OFF)
 message(STATUS "${CMLOC}USE_GL: ${USE_GL}")
 
+## Define the build type
 if("${CMAKE_BUILD_TYPE}" STREQUAL "")
     set(CMAKE_BUILD_TYPE
         "Release"
@@ -116,13 +118,6 @@ include("cmake/PluginConfigure.cmake")
 ## Racing Plugin does not understand/use this definition
 ##add_definitions(-DUSE_S57)
 
-##Racing plugin does not require external sources
-##set(EXTSRC)
-
-##set(EXTINCLUDE extinclude/nlohmann/json.hpp extinclude/ODAPI.h)
-
-##set(LIBSSRC libs/wxJSON/src/jsonreader.cpp libs/wxJSON/src/jsonval.cpp libs/wxJSON/src/jsonwriter.cpp)
-
 ##Racing plugin uses SVG for toolbar icons
 add_definitions(-DPLUGIN_USE_SVG)
 
@@ -135,33 +130,24 @@ add_definitions(-DPLUGIN_USE_SVG)
 
 ## Need api-16 for ocpn_plugin.h
 include_directories(BEFORE ${PROJECT_SOURCE_DIR}/api-16)
-#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/extinclude)
-#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/libs/)
-#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/libs/wx/include)
-#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpninclude/wxcurl)
-#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpninclude/wxcurl/include)
-#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpnsrc/lz4)
-#include_directories(BEFORE ${PROJECT_SOURCE_DIR}/ocpnsrc/bitmaps)
 
 INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/inc ${CMAKE_SOURCE_DIR}/src)
 
-SET(SRC_RACING
-            src/racing_icons.cpp
-            inc/racing_icons.h
+SET(SOURCES src/racing_icons.cpp
             src/racing_plugin.cpp
-            inc/racing_plugin.h
             src/racing_dialog.cpp
-            inc/racing_dialog.h
             src/racing_dialogbase.cpp
-            inc/racing_dialogbase.h
             src/racing_window.cpp
+            src/racing_windowbase.cpp)
+
+SET(HEADERS inc/racing_icons.h
+            inc/racing_plugin.h
+            inc/racing_dialog.h
+            inc/racing_dialogbase.h
             inc/racing_window.h
-            src/racing_windowbase.cpp
-            inc/racing_windowbase.h
- 	)
+            inc/racing_windowbase.h)
 
-
-ADD_LIBRARY(${PACKAGE_NAME} SHARED ${SRC_RACING} )
+ADD_LIBRARY(${PACKAGE_NAME} SHARED ${SOURCES} ${HEADERSS} )
 
 ##
 ## ----- do not change next section - needed to configure build process ----- ##

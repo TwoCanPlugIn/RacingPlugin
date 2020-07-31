@@ -59,7 +59,7 @@ set(CLOUDSMITH_USER "steven-adler")
 # set this if your cloudsmith repository name does not match your git repository name 
 set(CLOUDSMITH_BASE_REPOSITORY "racingplugin")
 
-set(XML_INFO_URL "https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:developer_manual:plugins:beta_plugins:twocan_pi")
+set(XML_INFO_URL "https://opencpn.org/wiki/dokuwiki/doku.php?id=opencpn:developer_manual:plugins:beta_plugins:race-start")
 set(XML_SUMMARY ${SHORT_DESCRIPTION})
 set(XML_DESCRIPTION ${LONG_DESCRIPTION})
 

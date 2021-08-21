@@ -1,7 +1,7 @@
 site:
   title: Race Start Plugin Manual
   url:  https://nowhere.net
-  start_page: race-start:ROOT:race-start.adoc
+  start_page: race-start:ROOT:index.adoc
 
 content:
   sources:

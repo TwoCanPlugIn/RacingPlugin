@@ -1,0 +1,20 @@
+site:
+  title: Race Start Plugin Manual
+  url:  https://nowhere.net
+  start_page: race-start:ROOT:race-start.adoc
+
+content:
+  sources:
+    - url: ../..
+      start_path: manual/race-start
+      branches: HEAD
+      edit_url: https://github.com/opencpn-manuals/RacingPlugIn/edit/master/{path}
+
+ui:   
+  bundle:
+    url: https://gitlab.com/leamas/antora-ui-default/-/raw/master/latest/ui-bundle.zip
+    snapshot: true
+
+output:
+  dir: ./docs
+  clean: true              

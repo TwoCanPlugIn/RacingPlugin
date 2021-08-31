@@ -1,4 +1,4 @@
-== Race Start Display
+= Race Start Display
 
 image:racing_icon_32.png[]
 

@@ -36,14 +36,14 @@ set(PACKAGE "race_start_display")
 set(SHORT_DESCRIPTION "Race Start Display, A simple tool for yacht racing")
 set(LONG_DESCRIPTION "Race Start Display, A simple tool for yacht racing, Displays countdown timer, distance and time to start line") 
 set(VERSION_MAJOR "1")
-set(VERSION_MINOR "1")
+set(VERSION_MINOR "3")
 set(VERSION_PATCH "0")
 set(VERSION_TWEAK "0")
-set(VERSION_DATE "14/07/2020")
+set(VERSION_DATE "21/05/2023")
 set(OCPN_MIN_VERSION "ov50")
 set(OCPN_API_VERSION_MAJOR "1")
 set(OCPN_API_VERSION_MINOR "16")
-set(TP_COMMENT "Release for O5 using CI")
+set(TP_COMMENT "Release for O5 using CI, FrontEnd v2")
 
 set(PARENT "opencpn")
 
@@ -129,7 +129,7 @@ add_definitions(-DPLUGIN_USE_SVG)
 ##endif(APPLE)
 
 ## Need api-16 for ocpn_plugin.h
-include_directories(BEFORE ${PROJECT_SOURCE_DIR}/api-16)
+INCLUDE_DIRECTORIES(BEFORE ${PROJECT_SOURCE_DIR}/libs/ocpn-api)
 
 INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/inc ${CMAKE_SOURCE_DIR}/src)
 
@@ -147,7 +147,8 @@ SET(HEADERS inc/racing_icons.h
             inc/racing_window.h
             inc/racing_windowbase.h)
 
-ADD_LIBRARY(${PACKAGE_NAME} SHARED ${SOURCES} ${HEADERSS} )
+
+TARGET_SOURCES(${PACKAGE_NAME} PUBLIC ${SOURCES} )
 
 ##
 ## ----- do not change next section - needed to configure build process ----- ##

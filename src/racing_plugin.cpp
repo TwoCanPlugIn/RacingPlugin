@@ -199,11 +199,14 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent &event) {
 		case RACE_DIALOG_PORT: {
 			PlugIn_Waypoint waypoint;
 			waypoint.m_IsVisible = true;
-			waypoint.m_MarkName = _T("Port");
+			waypoint.m_MarkName = _T("Man Overboard");
+			waypoint.m_IconName = _T("Mob");
 			portMarkGuid = GetNewGUID();
 			waypoint.m_GUID = portMarkGuid;
-			waypoint.m_lat = currentLatitude; // Test data 43.757188; 
-			waypoint.m_lon = currentLongitude; // Test data 7.497963;
+			//waypoint.m_lat = currentLatitude; // Test data 43.757188; 
+			//waypoint.m_lon = currentLongitude; // Test data 7.497963;
+			waypoint.m_lat = -38.1085;
+			waypoint.m_lon = 144.3989;
 			AddSingleWaypoint(&waypoint, false);
 			break;
 		}

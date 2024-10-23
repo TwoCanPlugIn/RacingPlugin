@@ -40,6 +40,16 @@
 #include "racing_dialog.h"
 #include "racing_window.h"
 
+// "Wind Wizard" gauge, similar to B&G SailSteer
+#include "racing_gauge.h"
+
+// wxWidgets include files
+
+// AUI Manager
+#include <wx/aui/aui.h>
+#include <wx/aui/framemanager.h>
+
+
 // Plugin receives events from the Race Start Display Window
 const wxEventType wxEVT_RACE_DIALOG_EVENT = wxNewEventType();
 const int RACE_DIALOG_CLOSED = wxID_HIGHEST + 1;
@@ -47,6 +57,10 @@ const int RACE_DIALOG_PORT = wxID_HIGHEST + 2;
 const int RACE_DIALOG_STBD = wxID_HIGHEST + 3;
 
 // Global variables
+
+// "Wind Wizard" gauge state
+bool isWindWizardVisible = false;
+
 // Bitmap used for both the plugin and dialogs
 wxBitmap pluginBitmap;
 
@@ -62,6 +76,7 @@ public:
 
 	// Overridden OpenCPN plugin methods
 	int Init(void);
+	void LateInit(void);
 	bool DeInit(void);
 	int GetAPIVersionMajor();
 	int GetAPIVersionMinor();
@@ -75,10 +90,18 @@ public:
 	int GetToolbarToolCount(void);
 	int GetToolbarItemId(void);
 	void OnToolbarToolCallback(int id);
+	void OnContextMenuItemCallback(int id);
+
 
 	// Event Handler for events received from the Race Start Display Window
 	void OnDialogEvent(wxCommandEvent &event);
 	
+	// Event Handler for wxAUI Manager
+	void OnPaneClose(wxAuiManagerEvent& event);
+
+	// Restore AUI Saved State
+	void UpdateAuiStatus(void);
+
 private: 
 	// Race Display modal dialog
 	RacingDialog *racingDialog;
@@ -89,8 +112,16 @@ private:
 	// Reference to the OpenCPN window handle
 	wxWindow *parentWindow;
 	
+	// Reference to wxAUI Manager
+	wxAuiManager* auiManager;
 	// Toolbar id
 	int racingToolbar;
+
+	// Context Menu id
+	int racingContextMenuId;
+
+	// WindWizard gauge
+	WindWizard* windWizard;
 
 	// Start line marks
 	wxString starboardMarkGuid;

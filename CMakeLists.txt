@@ -134,12 +134,14 @@ INCLUDE_DIRECTORIES(BEFORE ${PROJECT_SOURCE_DIR}/libs/ocpn-api)
 INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/inc ${CMAKE_SOURCE_DIR}/src)
 
 SET(SOURCES src/racing_plugin.cpp
+            src/racing_gauge.cpp
             src/racing_dialog.cpp
             src/racing_dialogbase.cpp
             src/racing_window.cpp
             src/racing_windowbase.cpp)
 
 SET(HEADERS inc/racing_plugin.h
+            inc/racing_gauge.h
             inc/racing_dialog.h
             inc/racing_dialogbase.h
             inc/racing_window.h

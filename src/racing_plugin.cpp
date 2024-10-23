@@ -27,7 +27,6 @@
 //
 
 #include "racing_plugin.h"
-#include "racing_icons.h"
 
 // Globally accessible variables used by the plugin
 wxFileConfig *configSettings;
@@ -55,7 +54,9 @@ RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_116(ppimgr), wxEvtHand
 	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
 
 	pluginBitmap = GetBitmapFromSVGFile(pluginFolder + _T("racing_icon.svg"), 32, 32);
-
+	
+	// Initialize Advanced User Interface Manager (AUI)
+	auiManager = GetFrameAuiManager();
 }
 
 // Destructor
@@ -70,17 +71,16 @@ int RacingPlugin::Init(void) {
 	// Not used, however could have a preference for the count down time (5 minutes etc.)
 	configSettings = GetOCPNConfigObject();
 
-	// Load plugin icons
+	// Load plugin icons for the toolbar
+	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
 	
-	// BUG BUG Can we automagically define this !! ${PACKAGE} + "_pi"
-	wxString shareLocn = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
-	
-	wxString normalIcon = shareLocn + _T("racing_icon_normal.svg");
-	wxString toggledIcon = shareLocn + _T("racing_icon_toggled.svg");
-	wxString rolloverIcon = shareLocn + _T("racing_icon_rollover.svg");
+	wxString normalIcon = pluginFolder + _T("racing_icon_normal.svg");
+	wxString toggledIcon = pluginFolder + _T("racing_icon_toggled.svg");
+	wxString rolloverIcon = pluginFolder + _T("racing_icon_rollover.svg");
 
 	// Insert the toolbar icon
-	racingToolbar = InsertPlugInToolSVG(_T(""), normalIcon, rolloverIcon, toggledIcon, wxITEM_CHECK, _("Race Start Display"), _T(""), NULL, -1, 0, this);
+	// Note that OpenCPN does not implement the rollover state
+	racingToolbar = InsertPlugInToolSVG(_T(PLUGIN_COMMON_NAME), normalIcon, rolloverIcon, toggledIcon, wxITEM_CHECK, _("Race Start Display"), _T(""), NULL, -1, 0, this);
 
 	// Wire up the event handler to receive events from the race start dialog
 	// BUG BUG For some reason couldn't use wxAUI (Advanced User Interface), casting error ) to handle the close event  ??
@@ -88,16 +88,78 @@ int RacingPlugin::Init(void) {
 
 	racingWindowVisible = false;
 
+	// Example of adding a context menu item
+	// This menu item is used to toggle the display of the "Wind Wizard" gauge
+	wxMenuItem* myMenu = new wxMenuItem(NULL, wxID_HIGHEST + 1, _T("Wind Wizard"), wxEmptyString, wxITEM_NORMAL, NULL);
+	racingContextMenuId = AddCanvasContextMenuItem(myMenu, this);
+
+
 	// Notify OpenCPN what events we want to receive callbacks for
-	return (WANTS_CONFIG | WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL | WANTS_NMEA_EVENTS);
+	return (WANTS_CONFIG | WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL | WANTS_NMEA_EVENTS |
+		USES_AUI_MANAGER | WANTS_LATE_INIT);
+}
+
+void RacingPlugin::LateInit(void) {
+
+	// For some reason unbeknownst to me, the aui manager fails to wire up correctly if done
+	// in the constructor or init. Seems to wire up correctly here though....
+
+	// Load the "Wind Wizard" gauge into the AUI Manager
+	windWizard = new WindWizard(parentWindow);
+
+	// Initialize AUI, it is used to display the "Wind Wizard" gauge
+	wxAuiPaneInfo paneInfo;
+	paneInfo.Name(_T(PLUGIN_COMMON_NAME));
+	paneInfo.Caption(_T("Wind Wizard"));
+	paneInfo.CloseButton(true);
+	paneInfo.Float();
+	paneInfo.Dockable(false);
+	paneInfo.FloatingSize(windWizard->GetMinSize());
+	paneInfo.MinSize(windWizard->GetMinSize());
+	paneInfo.Show(isWindWizardVisible);
+	auiManager->AddPane(windWizard, paneInfo);
+	auiManager->Connect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
+	auiManager->Update();
+
 }
 
 // OpenCPN is either closing down, or we have been disabled from the Preferences Dialog
 bool RacingPlugin::DeInit(void) {
+
+	// Disconnect the Advanced User Interface manager
+	auiManager->Disconnect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
+	auiManager->UnInit();
+	auiManager->DetachPane(windWizard);
+	delete windWizard;
 	Disconnect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
 	return TRUE;
 }
 
+// UpdateAUI Status is invoked by OpenCPN when the saved AUI perspective is loaded
+void RacingPlugin::UpdateAuiStatus(void) {
+
+	auiManager->GetPane(_T(PLUGIN_COMMON_NAME)).Show(isWindWizardVisible);
+	auiManager->Update();
+	SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
+
+}
+
+// Keep the context menu synchronized with the AUI pane state
+// The context menu is used to toggle the display the "Wind Wizard" gauge
+void RacingPlugin::OnPaneClose(wxAuiManagerEvent& event) {
+
+	wxAuiPaneInfo* paneInfo = event.GetPane();
+	if (paneInfo->name == _T(PLUGIN_COMMON_NAME)) {
+		isWindWizardVisible = false;
+		// Toggle the context menu item
+		SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
+	}
+	else {
+		event.Skip();
+	}
+}
+
+// OpenCPN Plugin "housekeeping" methods. All plugins MUST implement these
 // Indicate what version of the OpenCPN Plugin API we support
 int RacingPlugin::GetAPIVersionMajor() {
 	return OCPN_API_VERSION_MAJOR;
@@ -174,6 +236,18 @@ void RacingPlugin::OnToolbarToolCallback(int id) {
 		SetToolbarItemState(id, racingWindowVisible);
 	}
 }
+
+// What to do when our context menu item is selected
+void RacingPlugin::OnContextMenuItemCallback(int id) {
+
+	if (racingContextMenuId == id) {
+		isWindWizardVisible = !isWindWizardVisible;
+		SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
+		auiManager->GetPane(_T(PLUGIN_COMMON_NAME)).Show(isWindWizardVisible);
+		auiManager->Update();
+	}
+}
+
 
 // Handle events from the Race Start Dialog
 void RacingPlugin::OnDialogEvent(wxCommandEvent &event) {

@@ -38,7 +38,7 @@
 #include <wx/log.h>
 
 // image for dialog icon
-extern wxBitmap *_img_racing_logo_32;
+extern wxBitmap pluginBitmap;
 
 // Position data from OpenCPN
 extern double currentLatitude;

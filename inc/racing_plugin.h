@@ -46,6 +46,10 @@ const int RACE_DIALOG_CLOSED = wxID_HIGHEST + 1;
 const int RACE_DIALOG_PORT = wxID_HIGHEST + 2;
 const int RACE_DIALOG_STBD = wxID_HIGHEST + 3;
 
+// Global variables
+// Bitmap used for both the plugin and dialogs
+wxBitmap pluginBitmap;
+
 // The Racing plugin
 class RacingPlugin : public opencpn_plugin_116, public wxEvtHandler {
 
@@ -74,16 +78,13 @@ public:
 
 	// Event Handler for events received from the Race Start Display Window
 	void OnDialogEvent(wxCommandEvent &event);
-		
+	
 private: 
 	// Race Display modal dialog
 	RacingDialog *racingDialog;
 	// or
 	// Race Display modeless dialog
 	RacingWindow *racingWindow;
-
-	// Plugin bitmap
-	wxBitmap pluginBitmap;
 
 	// Reference to the OpenCPN window handle
 	wxWindow *parentWindow;

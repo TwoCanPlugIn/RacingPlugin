@@ -31,7 +31,7 @@
 RacingDialog::RacingDialog( wxWindow* parent) : RacingDialogBase(parent) {
 	// Set the dialog's icon
 	wxIcon icon;
-	icon.CopyFromBitmap(*_img_racing_logo_32);
+	icon.CopyFromBitmap(pluginBitmap);
 	RacingDialog::SetIcon(icon);
 	parent->GetSize(&parentWidth, &parentHeight);
 }

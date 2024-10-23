@@ -51,9 +51,11 @@ extern "C" DECL_EXP void destroy_pi(opencpn_plugin* p) {
 
 // Constructor
 RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_116(ppimgr), wxEvtHandler() {
-	
-	// Load the plugin bitmaps/icons 
-	initialize_images();
+	// Initialize the plugin bitmap
+	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
+
+	pluginBitmap = GetBitmapFromSVGFile(pluginFolder + _T("racing_icon.svg"), 32, 32);
+
 }
 
 // Destructor
@@ -128,9 +130,11 @@ wxString RacingPlugin::GetLongDescription() {
 	return _T(PLUGIN_LONG_DESCRIPTION);
 }
 
-// 32x32 pixel PNG file, use pgn2wx.pl perl script
+// Most plugins use a 32x32 pixel PNG file converted to xpm by pgn2wx.pl perl script
+// However easier just to use a SVG file as it means we can just use one image format
+// rather than maintaining several (png, bmp, ico)
 wxBitmap* RacingPlugin::GetPlugInBitmap() {
-		return _img_racing_logo_32;
+	return &pluginBitmap;
 }
 
 // Receive Position, Course & Speed from OpenCPN

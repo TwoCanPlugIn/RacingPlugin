@@ -32,7 +32,7 @@
 #include <algorithm>
 
 // image for dialog icon
-extern wxBitmap *_img_racing_logo_32;
+extern wxBitmap pluginBitmap;
 
 // Events posted to plugin
 extern const int RACE_DIALOG_CLOSED;

@@ -128,8 +128,19 @@ add_definitions(-DPLUGIN_USE_SVG)
 ##    option(PI_JSON_SCHEMA_VALIDATOR "Use JSON Schema validator" ON)
 ##endif(APPLE)
 
-## Need api-16 for ocpn_plugin.h
-INCLUDE_DIRECTORIES(BEFORE ${PROJECT_SOURCE_DIR}/libs/ocpn-api)
+## Include the additional libraries
+ADD_SUBDIRECTORY(opencpn-libs/api-18)
+TARGET_LINK_LIBRARIES(${PACKAGE_NAME} ocpn::api)
+
+ADD_SUBDIRECTORY(opencpn-libs/n2kparser)
+TARGET_LINK_LIBRARIES(${PACKAGE_NAME} ocpn::N2KParser)
+
+ADD_SUBDIRECTORY(opencpn-libs/nmea0183)
+TARGET_LINK_LIBRARIES(${PACKAGE_NAME} ocpn::nmea0183)
+
+ADD_SUBDIRECTORY(opencpn-libs/wxJSON)
+TARGET_LINK_LIBRARIES(${PACKAGE_NAME} ocpn::wxjson)
+
 
 INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/inc ${CMAKE_SOURCE_DIR}/src)
 

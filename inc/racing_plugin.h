@@ -36,6 +36,19 @@
 // OpenCPN include file
 #include "ocpn_plugin.h"
 
+//NMEA 0183 
+#include "nmea0183.h"
+
+// NMEA 2000
+#include "N2KParser.h"
+
+// wxJSON (used for parsing SignalK data)
+#include "wx/json_defs.h"
+#include "wx/jsonreader.h"
+#include "wx/jsonval.h"
+#include "wx/jsonwriter.h"
+
+
 // Race Start Dialog
 #include "racing_dialog.h"
 #include "racing_window.h"
@@ -141,6 +154,7 @@ public:
 	void SetupToolboxPanel(int page_sel, wxNotebook* pnotebook);
 	void OnCloseToolboxPanel(int page_sel, int ok_apply_cancel);
 	void ShowPreferencesDialog(wxWindow* parent);
+	void SetPluginMessage(wxString& message_id, wxString& message_body);
 
 
 	// Event Handler for events received from the Race Start Display Window
@@ -186,6 +200,67 @@ private:
 
 	// Plugin Preferences 
 	RacingSettings* racingSettings;
+
+	// The driver handle for the requested network protocol
+	DriverHandle n2kNetworkHandle;
+	wxString GetNetworkInterface(wxString protocol);
+
+	// Send a NMEA0183 True Wind Sentence
+	void GenerateTrueWindSentence(void);
+
+	// Send a NMEA 2000 True Wind message
+	void GenerateTrueWindMessage(void);
+
+	// Calculate NMEA 0183 XOR Checksum
+	wxString ComputeChecksum(wxString sentence);
+
+	// Maintain positions for the next waypoint / racing mark, so that a bearing can be calculated
+	bool waypointActive = false;
+	double waypointBearing, waypointDistance;
+
+	// The "old" mechanism for receiving NMEA 0183 sentences
+	void SetNMEASentence(wxString& sentence);
+
+	// NMEA 0183, NMEA 2000 and NavMsg Listeners
+
+	// NMEA 0183 MWV Wind sentence
+	void HandleMWV(ObservedEvt ev);
+	std::shared_ptr<ObservableListener> listener_mwv;
+
+	// NMEA 0183 DPT Depth sentence
+	void HandleDPT(ObservedEvt ev);
+	std::shared_ptr<ObservableListener> listener_dpt;
+
+	// NMEA 0183 VHW Boat speed and direction
+	void HandleVHW(ObservedEvt ev);
+	std::shared_ptr<ObservableListener> listener_vhw;
+
+	// OpenCPN's position, speed, heading etc.
+	// Means we don't need to parse NMEA 0183, NMEA 2000 or Signalk position data
+	void HandleNavData(ObservedEvt ev);
+	std::shared_ptr<ObservableListener> listener_nav;
+
+	// NMEA 2000 Wind Speed and Direction
+	void HandleN2K_130306(ObservedEvt ev);
+	std::shared_ptr<ObservableListener> listener_130306;
+
+	// NMEA 2000 Boat speed
+	void HandleN2K_128259(ObservedEvt ev);
+	std::shared_ptr<ObservableListener> listener_128259;
+
+	// NMEA 2000 Water Depth
+	void HandleN2K_128267(ObservedEvt ev);
+	std::shared_ptr<ObservableListener> listener_128267;
+
+	// SignalK listener
+	void HandleSignalK(ObservedEvt ev);
+	std::shared_ptr<ObservableListener> listener_SignalK;
+
+	// Parse the SignalK update messages
+	void HandleSKUpdate(wxJSONValue& value);
+	void HandleSKItem(wxJSONValue& item);
+
+
 
 	// OpenCPN's Own Ship Heading Predictor Length
 	int headingPredictorLength;

@@ -98,6 +98,77 @@ int RacingPlugin::Init(void) {
 	wxMenuItem* myMenu = new wxMenuItem(NULL, wxID_HIGHEST + 1, _T("Wind Wizard"), wxEmptyString, wxITEM_NORMAL, NULL);
 	racingContextMenuId = AddCanvasContextMenuItem(myMenu, this);
 
+	// Set up the listeners. NMEA 0183, NMEA 2000 and SignalK are used to obtain data 
+	// for boat speed, apparent wind angle & speed, NavData for position and heading
+
+	// NMEA 0183 MWV Wind Sentence
+	wxDEFINE_EVENT(EVT_183_MWV, ObservedEvt);
+	NMEA0183Id id_mwv = NMEA0183Id("MWV");
+	listener_mwv = std::move(GetListener(id_mwv, EVT_183_MWV, this));
+	Bind(EVT_183_MWV, [&](ObservedEvt ev) {
+		HandleMWV(ev);
+		});
+
+	// NMEA 0183 VHW Boat Speed Sentence
+	wxDEFINE_EVENT(EVT_183_VHW, ObservedEvt);
+	NMEA0183Id id_vhw = NMEA0183Id("VHW");
+	listener_vhw = std::move(GetListener(id_vhw, EVT_183_VHW, this));
+	Bind(EVT_183_VHW, [&](ObservedEvt ev) {
+		HandleVHW(ev);
+		});
+
+	// NMEA 0183 DPT Depth
+	wxDEFINE_EVENT(EVT_183_DPT, ObservedEvt);
+	NMEA0183Id id_dpt = NMEA0183Id("DPT");
+	listener_dpt = std::move(GetListener(id_dpt, EVT_183_DPT, this));
+	Bind(EVT_183_DPT, [&](ObservedEvt ev) {
+		HandleDPT(ev);
+		});
+
+	// PGN 130306 Wind
+	wxDEFINE_EVENT(EVT_N2K_130306, ObservedEvt);
+	NMEA2000Id id_130306 = NMEA2000Id(130306);
+	listener_130306 = std::move(GetListener(id_130306, EVT_N2K_130306, this));
+	Bind(EVT_N2K_130306, [&](ObservedEvt ev) {
+		HandleN2K_130306(ev);
+		});
+
+	// PGN 128267 Depth
+	wxDEFINE_EVENT(EVT_N2K_128267, ObservedEvt);
+	NMEA2000Id id_128267 = NMEA2000Id(128267);
+	listener_128267 = std::move(GetListener(id_128267, EVT_N2K_128267, this));
+	Bind(EVT_N2K_128267, [&](ObservedEvt ev) {
+		HandleN2K_128267(ev);
+		});
+
+	// PGN 128259 Boat Speed
+	wxDEFINE_EVENT(EVT_N2K_128259, ObservedEvt);
+	NMEA2000Id id_128259 = NMEA2000Id(128259);
+	listener_128259 = std::move(GetListener(id_128259, EVT_N2K_128259, this));
+	Bind(EVT_N2K_128259, [&](ObservedEvt ev) {
+		HandleN2K_128259(ev);
+		});
+
+	// SignalK Listerner
+	wxDEFINE_EVENT(EVT_SIGNALK, ObservedEvt);
+	SignalkId id_signalk = SignalkId("self");
+	listener_SignalK = std::move(GetListener(id_signalk, EVT_SIGNALK, this));
+	Bind(EVT_SIGNALK, [&](ObservedEvt ev) {
+		HandleSignalK(ev);
+		});
+
+	// OpenCPN Core NavData
+	wxDEFINE_EVENT(EVT_NAV_DATA, ObservedEvt);
+	listener_nav = GetListener(NavDataId(), EVT_NAV_DATA, this);
+	Bind(EVT_NAV_DATA, [&](ObservedEvt ev) {
+		HandleNavData(ev);
+		});
+
+	// Retrieve a NMEA 2000 network interface which is used to transmit
+	// PGN 130306 with the calculated True Wind Angles and Speed.
+	// This is merely an example of writing to the NMEA 2000 Network
+	n2kNetworkHandle = GetNetworkInterface("nmea2000");
+
 
 	// Notify OpenCPN what events we want to receive callbacks for
 	return (WANTS_CONFIG | WANTS_PREFERENCES | INSTALLS_TOOLBOX_PAGE | 
@@ -318,47 +389,374 @@ void RacingPlugin::ShowPreferencesDialog(wxWindow* parent) {
 	}
 }
 
+// The listeners
+// In this plugin, all speed and distance variables are received from the various data sources and 
+// stored in OpenCPN's default units. They are then converted to the user's chosen display units.
+// Note that NMEA2000 and SignalK use SI units
+// When using fromUserSpeed_Plugin use the following enums found in navutil_base.h
+// enum { DISTANCE_NMI = 0,DISTANCE_MI,DISTANCE_KM,DISTANCE_M,DISTANCE_FT,DISTANCE_FA,DISTANCE_IN,DISTANCE_CM};
+// enum { SPEED_KTS = 0, SPEED_MPH, SPEED_KMH, SPEED_MS };
+// enum { WSPEED_KTS = 0, WSPEED_MS, WSPEED_MPH, WSPEED_KMH };
+// enum { DEPTH_FT = 0, DEPTH_M, DEPTH_FA };
+// enum { TEMPERATURE_C = 0, TEMPERATURE_F = 1, TEMPERATURE_K = 2 };
+// Bearings/headings are in degrees
+
+// The old way of receiving NMEA 0183 sentences
+void RacingPlugin::SetNMEASentence(wxString& sentence) {
+	NMEA0183 parserNMEA0183;
+	parserNMEA0183 << sentence;
+	// We'll handle a few "older" style NMEA 0183 sentences using this method
+	if (parserNMEA0183.PreParse()) {
+		// $IIVWR,048,L,23.9,N,12.3,M,044.2,K*4F
+		if (parserNMEA0183.LastSentenceIDReceived == _T("VWR")) {
+			if (parserNMEA0183.Parse()) {
+				apparentWindSpeed = fromUsrSpeed_Plugin(parserNMEA0183.Vwr.WindSpeedKnots, 0);
+				apparentWindAngle = parserNMEA0183.Vwr.WindDirectionMagnitude;
+				if (parserNMEA0183.Vwr.DirectionOfWind == LEFTRIGHT::Left) {
+					apparentWindAngle = 360.0f - apparentWindAngle;
+				}
+			}
+		}
+		// $IIDBT,007.8,f,002.3,M,001.3,F*1D
+		if (parserNMEA0183.LastSentenceIDReceived == _T("DBT")) {
+			if (parserNMEA0183.Parse()) {
+				// Following depends on PR #4098
+				// waterDepth = fromUsrDepth_Plugin(parserNMEA0183.Dbt.DepthMeters, 1);
+				waterDepth = parserNMEA0183.Dbt.DepthMeters;
+			}
+		}
+	}
+}
+
+// Handler for Navigation Data events 
+void RacingPlugin::HandleNavData(ObservedEvt ev) {
+	PluginNavdata navdata = GetEventNavdata(ev);
+	// Save our current position and heading
+	//wxMutexLocker lock(lockPositionFix);
+	//currentLatitude = navdata.lat;
+	//currentLongitude = navdata.lon;
+	headingTrue = navdata.hdt;
+	headingMagnetic = navdata.hdt - navdata.var;
+	wxLogMessage(_T("NavData: %0.3f, %0.3f %0.2f"), navdata.lat, navdata.lon, navdata.hdt);
+}
+
+// Parse NMEA 0183 Wind sentence
+void RacingPlugin::HandleMWV(ObservedEvt ev) {
+	NMEA0183Id id_183_mwv("MWV");
+	NMEA0183 parserNMEA0183;
+	wxString sentence = GetN0183Payload(id_183_mwv, ev);
+	parserNMEA0183 << sentence;
+
+	// BUG BUG Really annoying that OpenCPN doesn't expose enums for the units in ocpn_plugin.h
+	if (parserNMEA0183.Parse()) {
+		if (parserNMEA0183.Mwv.WindSpeedUnits == 'N') { //Knots
+			apparentWindSpeed = fromUsrSpeed_Plugin(parserNMEA0183.Mwv.WindSpeed, 0);
+		}
+		else if (parserNMEA0183.Mwv.WindSpeedUnits == 'K') { // Kilometres/hour
+			apparentWindSpeed = fromUsrSpeed_Plugin(parserNMEA0183.Mwv.WindSpeed, 2);
+		}
+		else if (parserNMEA0183.Mwv.WindSpeedUnits == 'M') { //metres per second
+			apparentWindSpeed = fromUsrSpeed_Plugin(parserNMEA0183.Mwv.WindSpeed, 3);
+		}
+		apparentWindAngle = parserNMEA0183.Mwv.WindAngle;
+	}
+}
+
+// Parse NMEA 0183 Depth sentence
+void RacingPlugin::HandleDPT(ObservedEvt ev) {
+	NMEA0183Id id_183_dpt("DPT");
+	NMEA0183 parserNMEA0183;
+	wxString sentence = GetN0183Payload(id_183_dpt, ev);
+	parserNMEA0183 << sentence;
+	if (parserNMEA0183.Parse()) {
+		// Following depends on PR #4098
+		// waterDepth = fromUsrDepth_Plugin(parserNMEA0183.Dbt.DepthMeters, 1);
+		waterDepth = parserNMEA0183.Dbt.DepthMeters;
+	}
+}
+
+// Parse NMEA 0183 Speed through Water sentence
+void RacingPlugin::HandleVHW(ObservedEvt ev) {
+	NMEA0183Id id_183_vhw("VHW");
+	NMEA0183 parserNMEA0183;
+	wxString sentence = GetN0183Payload(id_183_vhw, ev);
+	parserNMEA0183 << sentence;
+
+	if (parserNMEA0183.Parse()) {
+		// Convert from knots
+		boatSpeed = fromUsrSpeed_Plugin(parserNMEA0183.Vhw.Knots, 0);
+	}
+}
+
+// Parse NMEA 2000 Speed Through Water message
+void RacingPlugin::HandleN2K_128259(ObservedEvt ev) {
+	NMEA2000Id id_128259(128259);
+	std::vector<uint8_t> payload = GetN2000Payload(id_128259, ev);
+
+	unsigned char sid;
+	double boatSpeedWaterReferenced;
+	double boatSpeedGroundReferenced;
+	tN2kSpeedWaterReferenceType waterReferenceType; // 0 = Paddlewheel
+
+	if (ParseN2kPGN128259(payload, sid, boatSpeedWaterReferenced, boatSpeedGroundReferenced, waterReferenceType)) {
+		// Convert from m/s
+		boatSpeed = fromUsrSpeed_Plugin(boatSpeedWaterReferenced, 3);
+	}
+}
+
+// Parse NMEA 2000 Water Depth message
+void RacingPlugin::HandleN2K_128267(ObservedEvt ev) {
+	NMEA2000Id id_128267(128267);
+	std::vector<uint8_t> payload = GetN2000Payload(id_128267, ev);
+
+	unsigned char sid;
+	double depthBelowTransducer;
+	double transducerOffset;
+	double maxRange;
+
+	if (ParseN2kPGN128267(payload, sid, depthBelowTransducer, transducerOffset, maxRange)) {
+		// Convert from cm, to metres, then to user's units
+		waterDepth = depthBelowTransducer * 100;
+	}
+}
+
+// Parse NMEA 2000 Wind message
+void RacingPlugin::HandleN2K_130306(ObservedEvt ev) {
+	NMEA2000Id id_130306(130306);
+	std::vector<uint8_t> payload = GetN2000Payload(id_130306, ev);
+
+	unsigned char sid;
+	double windSpeed;
+	double windAngle;
+	tN2kWindReference windReferenceType;
+
+	if (ParseN2kPGN130306(payload, sid, windSpeed, windAngle, windReferenceType)) {
+		// Convert from m/s and radians
+		apparentWindSpeed = fromUsrSpeed_Plugin(windSpeed, 3);
+		apparentWindAngle = windAngle * 180 / M_PI;
+	}
+}
+
+// Parse Signalk. Core OpenCPN has not yet implemented GetSignalKPayload
+// See below for OCPN Messaging
+void RacingPlugin::HandleSignalK(ObservedEvt ev) {
+	//auto payload = GetSignalkPayload(ev);
+	//const auto msg = *std::static_pointer_cast<const wxJSONValue>(payload);
+}
+
+// Receive & handle OpenCPN Messaging
+// 
+// As Core OpenCPN does not yet support GetSignalKPayload, obtain SignalK deltas from OCPN messaging
+void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body) {
+	wxJSONReader jsonReader;
+	wxJSONValue root;
+
+	// Process SignalK messages
+	if (message_id == _T("OCPN_CORE_SIGNALK")) {
+		wxString self;
+		if (jsonReader.Parse(message_body, &root) > 0) {
+			wxLogMessage("Race Plugin, JSON Error in following");
+			wxLogMessage("%s", message_body);
+			wxArrayString jsonErrors = jsonReader.GetErrors();
+			for (auto it : jsonErrors) {
+				wxLogMessage(it);
+			}
+			return;
+		}
+
+		if (root.HasMember("self")) {
+			if (root["self"].AsString().StartsWith(_T("vessels.")))
+				self = (root["self"].AsString());  // for Java server, and OpenPlotter node.js server 1.20
+			else
+				self = _T("vessels.") + (root["self"].AsString()); // for Node.js server
+		}
+
+		if (root.HasMember("context") && root["context"].IsString()) {
+			auto context = root["context"].AsString();
+			if (context != self) {
+				return;
+			}
+		}
+
+		if (root.HasMember("updates") && root["updates"].IsArray()) {
+			wxJSONValue updates = root["updates"];
+			for (int i = 0; i < updates.Size(); ++i) {
+				HandleSKUpdate(updates[i]);
+			}
+		}
+	}
+	// Parse navigation related messages to control whether to display laylines, bearing to waypoint etc.
+	else if (message_id == _T("OCPN_RTE_ACTIVATED")) {
+		waypointActive = true;
+	}
+	else if (message_id == _T("OCPN_RTE_DEACTIVATED")) {
+		waypointActive = false;
+	}
+	else if (message_id == _T("OCPN_RTE_ENDED")) {
+		waypointActive = false;
+	}
+	else if (message_id == _T("OCPN_WPT_ACTIVATED")) {
+		waypointActive = true;
+	}
+	else if (message_id == _T("OCPN_WPT_DEACTIVATED")) {
+		waypointActive = false;
+	}
+	else if (message_id == _T("OCPN_WPT_ARRIVED")) {
+		waypointActive = false;
+	}
+}
+
+// Process SignalK updates
+void RacingPlugin::HandleSKUpdate(wxJSONValue& update) {
+	if (update.HasMember("values") && update["values"].IsArray()) {
+		for (int j = 0; j < update["values"].Size(); ++j) {
+			wxJSONValue& item = update["values"][j];
+			HandleSKItem(item);
+		}
+	}
+}
+
+// Extract the SignalK values for apparent wind and boat speed
+// Note SignalK uses SI units and radians
+// BUG BUG Check scaling factor
+void RacingPlugin::HandleSKItem(wxJSONValue& item) {
+	if (item.HasMember("path") && item.HasMember("value")) {
+		const wxString& update_path = item["path"].AsString();
+		wxJSONValue& value = item["value"];
+
+		if (update_path.StartsWith("environment")) {
+			if (update_path == _T("environment.wind.angleApparent")) {
+				apparentWindAngle = value.AsDouble() * 180 / M_PI;
+			}
+			if (update_path == _T("environment.wind.speedApparent")) {
+				apparentWindSpeed = fromUsrSpeed_Plugin(value.AsDouble(), 3);
+			}
+			if (update_path == _T("environment.depth.belowTransducer")) {
+				// Following depends on PR #4098
+				// waterDepth = fromUsrDepth_Plugin(100 * value.AsDouble(), 1);
+				waterDepth = 100 * value.AsDouble();
+			}
+		}
+		else if (update_path.StartsWith("navigation")) {
+			if (update_path == "navigation.speedThroughWater") {
+				boatSpeed = fromUsrSpeed_Plugin(value.AsDouble(), 3);
+			}
+		}
+	}
+}
+
+// Generate True Wind NMEA 0183 Sentence
+void RacingPlugin::GenerateTrueWindSentence(void) {
+	wxString sentence;
+	// Generate the MWV sentence
+	sentence = wxString::Format("$IIMWV,%.2f,T,%.2f,N,A", trueWindAngle, trueWindSpeed);
+	// Append the checksum
+	wxString checksum = ComputeChecksum(sentence);
+	sentence.Append(wxT("*"));
+	sentence.Append(checksum);
+	sentence.Append(wxT("\r\n"));
+	// Send it to OpenCPN
+	PushNMEABuffer(sentence);
+	// Alternatively could have used the WriteCommDriver.
+	// But need to check if it is received by other plugins
+}
+
+// Generate True Wind NMEA 2000 PGN 130306 message
+void RacingPlugin::GenerateTrueWindMessage(void) {
+	tN2kMsg N2kMsg;
+	// Only Transmit if we have a valid NMEA 2000 connection
+	if (n2kNetworkHandle != wxEmptyString) {
+		SetN2kWindSpeed(N2kMsg, 1, trueWindSpeed, trueWindAngle, tN2kWindReference::N2kWind_True_boat);
+		std::vector<uint8_t> payload(N2kMsg.Data, N2kMsg.Data + N2kMsg.GetAvailableDataLength());
+		auto sharedPointer = std::make_shared<std::vector<uint8_t>>(payload);
+		WriteCommDriverN2K(n2kNetworkHandle, 130306, 255, 5, sharedPointer);
+	}
+}
+
+// Generate the NMEA 0183 XOR checksum to be appended to an NMEA 0183 sentence
+wxString RacingPlugin::ComputeChecksum(wxString sentence) {
+	unsigned char calculatedChecksum = 0;
+	for (wxString::const_iterator it = sentence.begin() + 1; it != sentence.end(); ++it) {
+		calculatedChecksum ^= static_cast<unsigned char> (*it);
+	}
+	return(wxString::Format(wxT("%02X"), calculatedChecksum));
+}
 
 // Handle events from the Race Start Dialog
-void RacingPlugin::OnDialogEvent(wxCommandEvent &event) {
+void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
 	switch (event.GetId()) {
 		// Keep the toolbar & canvas in sync with the display of the race start dialog
-		case RACE_DIALOG_CLOSED:
-			if (!starboardMarkGuid.IsEmpty()) {
-				DeleteSingleWaypoint(starboardMarkGuid);
-			}
-			if (!portMarkGuid.IsEmpty()) {
-				DeleteSingleWaypoint(portMarkGuid);
-			}
-			SetToolbarItemState(racingToolbar, racingWindowVisible);
-			break;
+	case RACE_DIALOG_CLOSED:
+		if (!starboardMarkGuid.IsEmpty()) {
+			DeleteSingleWaypoint(starboardMarkGuid);
+		}
+		if (!portMarkGuid.IsEmpty()) {
+			DeleteSingleWaypoint(portMarkGuid);
+		}
+		SetToolbarItemState(racingToolbar, racingWindowVisible);
+		break;
 		// drop temporary waypoints to represent port & starboard ends of the start line
-		case RACE_DIALOG_STBD: {
-			PlugIn_Waypoint waypoint;
-			waypoint.m_IsVisible = true;
-			waypoint.m_MarkName = _T("Starboard");
-			starboardMarkGuid = GetNewGUID();
-			waypoint.m_GUID = starboardMarkGuid;
-			waypoint.m_lat = currentLatitude; // Test data 43.75847; 
-			waypoint.m_lon = currentLongitude; // Test data 7.49575; 
-			AddSingleWaypoint(&waypoint, false);
-			break;
-		}
-		case RACE_DIALOG_PORT: {
-			PlugIn_Waypoint waypoint;
-			waypoint.m_IsVisible = true;
-			waypoint.m_MarkName = _T("Man Overboard");
-			waypoint.m_IconName = _T("Mob");
-			portMarkGuid = GetNewGUID();
-			waypoint.m_GUID = portMarkGuid;
-			//waypoint.m_lat = currentLatitude; // Test data 43.757188; 
-			//waypoint.m_lon = currentLongitude; // Test data 7.497963;
-			waypoint.m_lat = -38.1085;
-			waypoint.m_lon = 144.3989;
-			AddSingleWaypoint(&waypoint, false);
-			break;
-		}
-		default:
-			event.Skip();
+	case RACE_DIALOG_STBD: {
+		PlugIn_Waypoint waypoint;
+		waypoint.m_IsVisible = true;
+		waypoint.m_MarkName = _T("Starboard");
+		starboardMarkGuid = GetNewGUID();
+		waypoint.m_GUID = starboardMarkGuid;
+		waypoint.m_lat = currentLatitude; // Test data 43.75847; 
+		waypoint.m_lon = currentLongitude; // Test data 7.49575; 
+		AddSingleWaypoint(&waypoint, false);
+		break;
 	}
+	case RACE_DIALOG_PORT: {
+		PlugIn_Waypoint waypoint;
+		waypoint.m_IsVisible = true;
+		waypoint.m_MarkName = _T("Man Overboard");
+		waypoint.m_IconName = _T("Mob");
+		portMarkGuid = GetNewGUID();
+		waypoint.m_GUID = portMarkGuid;
+		//waypoint.m_lat = currentLatitude; // Test data 43.757188; 
+		//waypoint.m_lon = currentLongitude; // Test data 7.497963;
+		waypoint.m_lat = -38.1085;
+		waypoint.m_lon = 144.3989;
+		AddSingleWaypoint(&waypoint, false);
+		break;
+	}
+	default:
+		event.Skip();
+	}
+}
+
+wxString RacingPlugin::GetNetworkInterface(wxString selectedProtocol) {
+	// Retrieves the first interface for the selected protocol
+	// BUG BUG Ignores multiple interfaces. It should also check if interface is an "output" interface
+	// Available protocols include "nmea2000", "SignalK", "nmea0183"
+	// Note that writing to SignalK is unsupported
+	std::vector<DriverHandle> activeDrivers;
+	activeDrivers = GetActiveDrivers();
+	for (auto const& activeDriver : activeDrivers) {
+		wxLogMessage(_T("Race Plugin, Interface: %s"), activeDriver);
+		for (auto const& driver : GetAttributes(activeDriver)) {
+			if (driver.first == "protocol") {
+				wxLogMessage(_T("Race Plugin, Type: %s, Protocol: %s"),
+					driver.first, driver.second);
+			}
+			if (driver.first == "netAddress") {
+				wxLogMessage(_T("Race Plugin, Type: %s, IP Address: %s"),
+					driver.first, driver.second);
+			}
+			if (driver.first == "netPort") {
+				wxLogMessage(_T("Race Plugin, Type: %s, Port: %s"),
+					driver.first, driver.second);
+			}
+			if (driver.first == "commPort") {
+				wxLogMessage(_T("Race Plugin, Type: %s, Comm Port: %s"),
+					driver.first, driver.second);
+			}
+			if (driver.second == selectedProtocol) {
+				wxLogMessage(_T("Race Plugin, Protocol %s using %s"), selectedProtocol, activeDriver);
+				return activeDriver;
+			}
+		}
+	}
+	return wxEmptyString;
 }

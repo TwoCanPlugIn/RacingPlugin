@@ -138,14 +138,22 @@ SET(SOURCES src/racing_plugin.cpp
             src/racing_dialog.cpp
             src/racing_dialogbase.cpp
             src/racing_window.cpp
-            src/racing_windowbase.cpp)
+            src/racing_windowbase.cpp
+            src/racing_toolboxbase.cpp
+            src/racing_toolbox.cpp
+            src/racing_settingsbase.cpp
+            src/racing_settings.cpp)
 
 SET(HEADERS inc/racing_plugin.h
             inc/racing_gauge.h
             inc/racing_dialog.h
             inc/racing_dialogbase.h
             inc/racing_window.h
-            inc/racing_windowbase.h)
+            inc/racing_windowbase.h
+            inc/racing_toolboxbase.h
+            inc/racing_toolbox.h
+            inc/racing_settingsbase.h
+            inc/racing_settings.h)
 
 
 TARGET_SOURCES(${PACKAGE_NAME} PUBLIC ${SOURCES} )

@@ -100,7 +100,8 @@ int RacingPlugin::Init(void) {
 
 
 	// Notify OpenCPN what events we want to receive callbacks for
-	return (WANTS_CONFIG | WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL | WANTS_NMEA_EVENTS |
+	return (WANTS_CONFIG | WANTS_PREFERENCES | INSTALLS_TOOLBOX_PAGE | 
+		WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL | WANTS_NMEA_EVENTS |
 		USES_AUI_MANAGER | WANTS_LATE_INIT);
 }
 
@@ -201,7 +202,6 @@ wxString RacingPlugin::GetCommonName() {
 	return _T(PLUGIN_COMMON_NAME);
 }
 
-// BUG BUG Should use XML_SUMMARY & DESCRIPTION to avoid duplication
 wxString RacingPlugin::GetShortDescription() {
 	return _T(PLUGIN_SHORT_DESCRIPTION);
 }
@@ -263,6 +263,58 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 		SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
 		auiManager->GetPane(_T(PLUGIN_COMMON_NAME)).Show(isWindWizardVisible);
 		auiManager->Update();
+	}
+}
+
+// Add our own tab on the OpenCPN toolbox, under the "User" settings, requires INSTALLS_TOOLBOX_PAGE
+// Ordinarily plugins would add their own settings dialog launched from the ShowPreferencesDialog method
+void RacingPlugin::OnSetupOptions(void) {
+	// Get a handle to our options page window, add a sizer to it, to which we will add our toolbox panel
+	toolBoxWindow = AddOptionsPage(OptionsParentPI::PI_OPTIONS_PARENT_UI, _T(PLUGIN_COMMON_NAME));
+	toolboxSizer = new wxBoxSizer(wxVERTICAL);
+	toolBoxWindow->SetSizer(toolboxSizer);
+	// Create our toolbox panel and add it to the toolbox via the sizer
+	racingToolbox = new RacingToolbox(toolBoxWindow);
+	toolboxSizer->Add(racingToolbox, 1, wxALL | wxEXPAND);
+}
+
+// I have no idea when this is called, supposedly when the plugin is first added
+// but it seems like it is no longer implemented
+void RacingPlugin::SetupToolboxPanel(int page_sel, wxNotebook* pnotebook) {
+	//....wxMessageBox(wxString::Format(_T("SetupToolboxPanel: %d"), page_sel));
+}
+
+// Invoked when the OpenCPN Toolbox OK, Apply or Cancel buttons are pressed
+// Requires INSTALLS_TOOLBOX_PAGE
+void RacingPlugin::OnCloseToolboxPanel(int page_sel, int ok_apply_cancel) {
+	// Why didn't they use standard enums like wxID_OK ??	
+	if ((ok_apply_cancel == 0) || (ok_apply_cancel == 4)) {
+		// Save the setttings
+		if (configSettings) {
+			configSettings->SetPath(_T("/PlugIns/RacingPlugin"));
+			configSettings->Write(_T("StartLineBias"), showStartline);
+			configSettings->Write(_T("Laylines"), showLayLines);
+			configSettings->Write(_T("DualCanvas"), showMultiCanvas);
+			configSettings->Write(_T("WindAngles"), showWindAngles);
+			configSettings->Write(_T("StartTimer"), defaultTimerValue);
+		}
+	}
+}
+
+// Display Plugin preferences dialog. 
+// This is probably the preferable way for plugins to configure their settings
+void RacingPlugin::ShowPreferencesDialog(wxWindow* parent) {
+	racingSettings = new RacingSettings(parent);
+
+	// Kind of redundant as the settings are saved during deinit
+	// However this demonstrates the use of plugin preferences
+	// Could use getters & setters, or as I'm lazy, global variables
+	if (racingSettings->ShowModal() == wxID_OK) {
+		if (configSettings) {
+			configSettings->SetPath(_T("/PlugIns/RacingPlugin"));
+			configSettings->Write(_T("SendNMEA2000Wind"), generatePGN130306);
+			configSettings->Write(_T("SendNMEA0183Wind"), generateMWVSentence);
+		}
 	}
 }
 

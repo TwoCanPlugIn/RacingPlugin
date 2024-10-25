@@ -40,6 +40,11 @@
 #include "racing_dialog.h"
 #include "racing_window.h"
 
+// Plugin Settings dialog
+#include "racing_settings.h"
+
+// Plugin Toolbox dialog
+#include "racing_toolbox.h"
 // "Wind Wizard" gauge, similar to B&G SailSteer
 #include "racing_gauge.h"
 
@@ -51,6 +56,9 @@
 
 // Configuration
 #include <wx/fileconf.h>
+
+// Strings
+#include <wx/string.h>
 
 
 // Plugin receives events from the Race Start Display Window
@@ -129,6 +137,10 @@ public:
 	int GetToolbarItemId(void);
 	void OnToolbarToolCallback(int id);
 	void OnContextMenuItemCallback(int id);
+	void OnSetupOptions(void);
+	void SetupToolboxPanel(int page_sel, wxNotebook* pnotebook);
+	void OnCloseToolboxPanel(int page_sel, int ok_apply_cancel);
+	void ShowPreferencesDialog(wxWindow* parent);
 
 
 	// Event Handler for events received from the Race Start Display Window
@@ -164,6 +176,16 @@ private:
 
 	// WindWizard gauge
 	WindWizard* windWizard;
+
+	// Settings Toolbox
+	RacingToolbox* racingToolbox;
+
+	// Settings Toolbox, container for the above
+	wxScrolledWindow* toolBoxWindow;
+	wxBoxSizer* toolboxSizer;
+
+	// Plugin Preferences 
+	RacingSettings* racingSettings;
 
 	// OpenCPN's Own Ship Heading Predictor Length
 	int headingPredictorLength;

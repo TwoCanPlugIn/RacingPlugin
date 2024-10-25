@@ -49,6 +49,9 @@
 #include <wx/aui/aui.h>
 #include <wx/aui/framemanager.h>
 
+// Configuration
+#include <wx/fileconf.h>
+
 
 // Plugin receives events from the Race Start Display Window
 const wxEventType wxEVT_RACE_DIALOG_EVENT = wxNewEventType();
@@ -56,13 +59,48 @@ const int RACE_DIALOG_CLOSED = wxID_HIGHEST + 1;
 const int RACE_DIALOG_PORT = wxID_HIGHEST + 2;
 const int RACE_DIALOG_STBD = wxID_HIGHEST + 3;
 
-// Global variables
+// Globally accessible variables used by the plugin, dialogs etc.
+
+// Note speed, distance values are always in the users chosen units
+double currentLatitude = 0.0f;
+double currentLongitude = 0.0f;
+double courseOverGround = 0.0f;
+double speedOverGround = 0.0f;
+double headingTrue = 0.0f;
+double headingMagnetic = 0.0f;
+double boatSpeed = 0.0f;
+double waterDepth = 0.0f;
+double apparentWindSpeed = 0.0f;
+double apparentWindAngle = 0.0f;
+double trueWindDirection = 0.0f;
+double trueWindAngle = 0.0f;
+double trueWindSpeed = 0.0f;
+double driftSpeed = 0.0f;
+double driftAngle = 0.0f;
+
+// Protect access to lat & long read/write
+//wxCriticalSection* lockPositionFix;
+wxMutex lockPositionFix;
+
+// Toolbar state
+bool racingWindowVisible;
 
 // "Wind Wizard" gauge state
 bool isWindWizardVisible = false;
 
 // Bitmap used for both the plugin and dialogs
 wxBitmap pluginBitmap;
+
+// Some configuration settings
+bool showStartline;
+bool showLayLines;
+bool showWindAngles;
+bool showMultiCanvas;
+bool generatePGN130306;
+bool generateMWVSentence;
+int tackingAngle;
+int defaultTimerValue;
+
 
 // The Racing plugin
 class RacingPlugin : public opencpn_plugin_116, public wxEvtHandler {
@@ -114,6 +152,10 @@ private:
 	
 	// Reference to wxAUI Manager
 	wxAuiManager* auiManager;
+
+	// OpenCPN Confuration Settings
+	wxFileConfig* configSettings;
+
 	// Toolbar id
 	int racingToolbar;
 
@@ -122,6 +164,9 @@ private:
 
 	// WindWizard gauge
 	WindWizard* windWizard;
+
+	// OpenCPN's Own Ship Heading Predictor Length
+	int headingPredictorLength;
 
 	// Start line marks
 	wxString starboardMarkGuid;

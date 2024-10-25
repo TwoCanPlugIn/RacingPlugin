@@ -28,17 +28,6 @@
 
 #include "racing_plugin.h"
 
-// Globally accessible variables used by the plugin
-wxFileConfig *configSettings;
-
-double currentLatitude;
-double currentLongitude;
-double courseOverGround;
-double speedOverGround;
-
-// Toolbar State
-bool racingWindowVisible;
-
 // The class factories, used to create and destroy instances of the PlugIn
 extern "C" DECL_EXP opencpn_plugin* create_pi(void *ppimgr) {
 	return new RacingPlugin(ppimgr);
@@ -68,12 +57,28 @@ int RacingPlugin::Init(void) {
 	parentWindow = GetOCPNCanvasWindow();
 
 	// Maintain a reference to the OpenCPN configuration object 
-	// Not used, however could have a preference for the count down time (5 minutes etc.)
 	configSettings = GetOCPNConfigObject();
+
+	// Load Configuration Settings
+	if (configSettings) {
+		configSettings->SetPath(_T("/PlugIns/RacingPlugin"));
+		configSettings->Read(_T("StartLineBias"), &showStartline, false);
+		configSettings->Read(_T("Laylines"), &showLayLines, false);
+		configSettings->Read(_T("WindAngles"), &showWindAngles, false);
+		configSettings->Read(_T("DualCanvas"), &showMultiCanvas, false);
+		configSettings->Read(_T("StartTimer"), &defaultTimerValue, 300);
+		configSettings->Read(_T("Visible"), &isWindWizardVisible, false);
+		configSettings->Read(_T("SendNMEA2000Wind"), &generatePGN130306, false);
+		configSettings->Read(_T("SendNMEA0183Wind"), &generateMWVSentence, false);
+		// Get the length of OpenCPN's Ship's Heading Predictor Length
+		configSettings->SetPath(_T("Settings"));
+		configSettings->Read(_T("OwnshipHDTPredictorMiles"), &headingPredictorLength, 1);
+	}
 
 	// Load plugin icons for the toolbar
 	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
-	
+
+	// This assume the plugin is using Scaled Vector Graphics (SVG)
 	wxString normalIcon = pluginFolder + _T("racing_icon_normal.svg");
 	wxString toggledIcon = pluginFolder + _T("racing_icon_toggled.svg");
 	wxString rolloverIcon = pluginFolder + _T("racing_icon_rollover.svg");
@@ -125,6 +130,19 @@ void RacingPlugin::LateInit(void) {
 
 // OpenCPN is either closing down, or we have been disabled from the Preferences Dialog
 bool RacingPlugin::DeInit(void) {
+
+	// Save the current settings
+	if (configSettings) {
+		configSettings->SetPath(_T("/PlugIns/RacingPlugin"));
+		configSettings->Write(_T("StartLineBias"), showStartline);
+		configSettings->Write(_T("Laylines"), showLayLines);
+		configSettings->Write(_T("DualCanvas"), showMultiCanvas);
+		configSettings->Write(_T("WindAngles"), showWindAngles);
+		configSettings->Write(_T("StartTimer"), defaultTimerValue);
+		configSettings->Write(_T("Visible"), isWindWizardVisible);
+		configSettings->Write(_T("SendNMEA2000Wind"), generatePGN130306);
+		configSettings->Write(_T("SendNMEA0183Wind"), generateMWVSentence);
+	}
 
 	// Disconnect the Advanced User Interface manager
 	auiManager->Disconnect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);

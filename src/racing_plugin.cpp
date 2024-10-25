@@ -46,10 +46,21 @@ RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_116(ppimgr), wxEvtHand
 	
 	// Initialize Advanced User Interface Manager (AUI)
 	auiManager = GetFrameAuiManager();
+
+	// One second timer updates the "Wind Wizard" gauge
+	oneSecondTimer = new wxTimer();
+	oneSecondTimer->Bind(wxEVT_TIMER, &RacingPlugin::OnTimerElapsed, this);
+	oneSecondTimer->Start(1000, wxTIMER_CONTINUOUS);
 }
 
 // Destructor
 RacingPlugin::~RacingPlugin(void) {
+
+	if (oneSecondTimer->IsRunning()) {
+		oneSecondTimer->Stop();
+	}
+	oneSecondTimer->Unbind(wxEVT_TIMER, &RacingPlugin::OnTimerElapsed, this);
+	delete oneSecondTimer;
 }
 
 int RacingPlugin::Init(void) {
@@ -58,6 +69,9 @@ int RacingPlugin::Init(void) {
 
 	// Maintain a reference to the OpenCPN configuration object 
 	configSettings = GetOCPNConfigObject();
+
+	// Initialize Localization catalogs
+	AddLocaleCatalog(_T("opencpn-race_start_display_pi"));
 
 	// Load Configuration Settings
 	if (configSettings) {
@@ -83,15 +97,16 @@ int RacingPlugin::Init(void) {
 	wxString toggledIcon = pluginFolder + _T("racing_icon_toggled.svg");
 	wxString rolloverIcon = pluginFolder + _T("racing_icon_rollover.svg");
 
-	// Insert the toolbar icon
+	// Add the toolbar button 
 	// Note that OpenCPN does not implement the rollover state
 	racingToolbar = InsertPlugInToolSVG(_T(PLUGIN_COMMON_NAME), normalIcon, rolloverIcon, toggledIcon, wxITEM_CHECK, _("Race Start Display"), _T(""), NULL, -1, 0, this);
 
-	// Wire up the event handler to receive events from the race start dialog
-	// BUG BUG For some reason couldn't use wxAUI (Advanced User Interface), casting error ) to handle the close event  ??
-	Connect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
-
 	racingWindowVisible = false;
+	
+	racingDialog = nullptr;
+	racingWindow = nullptr;
+	racingToolbox = nullptr;
+	racingSettings = nullptr;
 
 	// Example of adding a context menu item
 	// This menu item is used to toggle the display of the "Wind Wizard" gauge
@@ -169,11 +184,14 @@ int RacingPlugin::Init(void) {
 	// This is merely an example of writing to the NMEA 2000 Network
 	n2kNetworkHandle = GetNetworkInterface("nmea2000");
 
+	// Wire up the event handler to receive events from the race start dialog
+	Connect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
+
 
 	// Notify OpenCPN what events we want to receive callbacks for
 	return (WANTS_CONFIG | WANTS_PREFERENCES | INSTALLS_TOOLBOX_PAGE | 
 		WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL | WANTS_NMEA_EVENTS |
-		USES_AUI_MANAGER | WANTS_LATE_INIT);
+		WANTS_PLUGIN_MESSAGING | USES_AUI_MANAGER | WANTS_LATE_INIT);
 }
 
 void RacingPlugin::LateInit(void) {
@@ -221,7 +239,22 @@ bool RacingPlugin::DeInit(void) {
 	auiManager->UnInit();
 	auiManager->DetachPane(windWizard);
 	delete windWizard;
+
+	// Cleanup the toolbox page here because OnSetupToolbox is only called once at Startup.
+	// If we were to perform the cleanup in the OnCloseToolboxPane function, 
+	// we can never initialize it again.
+	DeleteOptionsPage(toolBoxWindow);
+	delete toolBoxWindow;
+
+	// Cleanup up the Count Down Timer Window
+	if (racingWindowVisible) {
+		//racingWindow->Finish();
+		delete racingWindow;
+	}
+
+	// Unwire the handler for the Count Down Timer Window events 
 	Disconnect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
+
 	return TRUE;
 }
 
@@ -286,14 +319,6 @@ wxString RacingPlugin::GetLongDescription() {
 // rather than maintaining several (png, bmp, ico)
 wxBitmap* RacingPlugin::GetPlugInBitmap() {
 	return &pluginBitmap;
-}
-
-// Receive Position, Course & Speed from OpenCPN
-void RacingPlugin::SetPositionFix(PlugIn_Position_Fix &pfix) {
-	currentLatitude = pfix.Lat; 
-	currentLongitude = pfix.Lon; 
-	courseOverGround = pfix.Cog; 
-	speedOverGround = pfix.Sog; 
 }
 
 // We only install a singe toolbar item
@@ -387,6 +412,26 @@ void RacingPlugin::ShowPreferencesDialog(wxWindow* parent) {
 			configSettings->Write(_T("SendNMEA0183Wind"), generateMWVSentence);
 		}
 	}
+}
+
+// When a route or waypoint is active, OpenCPN provides distance, bearing etc. to the waypoint
+void RacingPlugin::SetActiveLegInfo(Plugin_Active_Leg_Info& pInfo) {
+	// These global variables are also set in the OCPN_WPT... and OCPN_RTE... messages
+	waypointActive = true;
+	waypointBearing = pInfo.Btw;
+}
+
+// Receive Position, Course, Speed and Heading from OpenCPN
+// This has now probably been superceded by NavMsg listener
+void RacingPlugin::SetPositionFixEx(PlugIn_Position_Fix_Ex& pfix) {
+	//wxMutexLocker lock(lockPositionFix);
+	currentLatitude = pfix.Lat;
+	currentLongitude = pfix.Lon;
+	courseOverGround = pfix.Cog;
+	speedOverGround = pfix.Sog;
+	headingTrue = pfix.Hdt;
+	headingMagnetic = pfix.Hdm;
+	wxLogMessage(_T("Pfix: %0.3f, %0.3f %0.2f"), pfix.Lat, pfix.Lon, pfix.Hdt);
 }
 
 // The listeners
@@ -681,8 +726,72 @@ wxString RacingPlugin::ComputeChecksum(wxString sentence) {
 	}
 	return(wxString::Format(wxT("%02X"), calculatedChecksum));
 }
+// Update the "Wind Wizard" every second and generate True Wind messages/sentences
+// BUG BUG This is where a pub/sub model would be interesting....
+void RacingPlugin::OnTimerElapsed(wxEvent& ev) {
+	if (oneSecondTimer->IsRunning()) {
+		CalculateTrueWind();
+		//CalculateDrift();
+
+		windWizard->SetTrueWindAngle(trueWindAngle);
+		windWizard->SetTrueWindSpeed(trueWindSpeed);
+		windWizard->SetApparentWindAngle(apparentWindAngle);
+		windWizard->SetApparentWindSpeed(apparentWindSpeed);
+		windWizard->SetBoatSpeed(boatSpeed);
+		windWizard->SetWaterDepth(waterDepth);
+		windWizard->SetMagneticHeading(headingMagnetic);
+		windWizard->SetTrueHeading(headingTrue);
+		windWizard->SetCOG(courseOverGround);
+		windWizard->SetSOG(speedOverGround);
+		windWizard->SetVMG(boatSpeed * cos(trueWindAngle));
+		// course made good = boatSpeed * cos(headingTrue - headingMagnetic); 
+		windWizard->SetDriftAngle(driftAngle);
+		windWizard->SetDriftSpeed(driftSpeed);
+		windWizard->ShowBearing(waypointActive);
+		if (waypointActive) {
+			windWizard->SetBearing(waypointBearing);
+		}
+
+		// Update the Gauge
+		windWizard->Refresh();
+
+		// Generate NMEA 0183 and NMEA 2000 True Wind Messages
+		if (generateMWVSentence) {
+			GenerateTrueWindSentence();
+		}
+		if (generatePGN130306) {
+			GenerateTrueWindMessage();
+		}
+	}
+	// Every second could also take a screen capture
+	// CreateScreenShot();
+}
+
+// Perhaps of use to the folks investigating the use of a marine radar to track weather
+void RacingPlugin::CreateScreenShot() {
+	wxClientDC clientDC(GetOCPNCanvasWindow());
+
+	wxCoord screenWidth, screenHeight;
+	clientDC.GetSize(&screenWidth, &screenHeight);
+
+	// Create a bitmap to hold the screenshot image
+	wxBitmap bitMap(screenWidth, screenHeight, -1);
+
+	// Create a memory DC that will capture the screen
+	wxMemoryDC memDC;
+
+	memDC.SelectObject(bitMap);
+
+	// Copy it
+	memDC.Blit(0, 0, screenWidth, screenHeight, &clientDC, 0, 0);
+
+	memDC.SelectObject(wxNullBitmap);
+
+	bitMap.SaveFile(GetWritableDocumentsDir() + wxFileName::GetPathSeparators() + "screenshot.jpg", wxBITMAP_TYPE_JPEG);
+}
 
 // Handle events from the Race Start Dialog
+
 void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
 	switch (event.GetId()) {
 		// Keep the toolbar & canvas in sync with the display of the race start dialog
@@ -759,4 +868,48 @@ wxString RacingPlugin::GetNetworkInterface(wxString selectedProtocol) {
 		}
 	}
 	return wxEmptyString;
+}
+
+// Adopted from Dashboard Tactics
+void RacingPlugin::CalculateTrueWind() {
+	if (apparentWindAngle < 180.0f) {
+		trueWindAngle = 90.0f - (180.0f / M_PI * atan((apparentWindSpeed * cos(apparentWindAngle * M_PI / 180.) - boatSpeed) / (apparentWindSpeed * sin(apparentWindAngle * M_PI / 180.))));
+	}
+	else if (apparentWindAngle > 180.0f) {
+		trueWindAngle = 360.0f - (90.0f - (180.0f / M_PI * atan((apparentWindSpeed * cos((180. - (apparentWindAngle - 180.)) * M_PI / 180.) - boatSpeed) / (apparentWindSpeed * sin((180.0f - (apparentWindAngle - 180.0f)) * M_PI / 180.0f)))));
+	}
+	else {
+		trueWindAngle = 180.0f;
+	}
+	trueWindSpeed = sqrt(pow((apparentWindSpeed * cos(apparentWindAngle * M_PI / 180.)) - boatSpeed, 2) + pow(apparentWindSpeed * sin(apparentWindAngle * M_PI / 180.), 2));
+
+	trueWindDirection = fmod(trueWindAngle + headingTrue, 360.0f);
+}
+
+void RacingPlugin::CalculateDrift() {
+	// The diffference between COG, SOG and STW and HDG
+	// Two ways of calculating, one using difference between projected positions from STW/HDG and COG/SOG
+	// the other using vector addition
+
+	// https://sailing-blog.nauticed.org/coastal-navigation-the-math-behind-it/
+
+	double gpsLatitude;
+	double gpsLongitude;
+	double headingLatitude;
+	double headingLongitude;
+
+	// Calculate the projected positions
+	PositionBearingDistanceMercator_Plugin(currentLatitude, currentLongitude, headingTrue,
+		boatSpeed, &headingLatitude, &headingLongitude);
+
+	PositionBearingDistanceMercator_Plugin(currentLatitude, currentLongitude, courseOverGround,
+		speedOverGround, &gpsLatitude, &gpsLongitude);
+
+	// Calculate the direction and speed of the current
+	// Note this doesn't take into account leeway nor the effect of heel
+	DistanceBearingMercator_Plugin(headingLatitude, headingLongitude, gpsLatitude,
+		gpsLongitude, &driftAngle, &driftSpeed);
+
+	wxLogMessage(_T("Racing Plugin, Drift: Angle %0.02f, Speed: %0,02f"), driftAngle, driftSpeed);
+
 }

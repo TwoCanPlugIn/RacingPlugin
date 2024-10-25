@@ -144,7 +144,8 @@ public:
 	wxString GetCommonName();
 	wxString GetShortDescription();
 	wxString GetLongDescription();
-	void SetPositionFix(PlugIn_Position_Fix &pfix);
+	void SetPositionFixEx(PlugIn_Position_Fix_Ex& pfix);
+	void SetActiveLegInfo(Plugin_Active_Leg_Info& pInfo);
 	wxBitmap *GetPlugInBitmap();
 	int GetToolbarToolCount(void);
 	int GetToolbarItemId(void);
@@ -260,7 +261,22 @@ private:
 	void HandleSKUpdate(wxJSONValue& value);
 	void HandleSKItem(wxJSONValue& item);
 
+	// Calculate True Wind from boat speed and apparent wind speed and direction
+	void CalculateTrueWind();
 
+	// Another version
+	void CalculateTrueWindVersion2(void);
+
+	// Calculate Drift using difference between COG & Heading.
+	void CalculateDrift();
+
+	// One second timer to update the "Wind Wizard" gauge
+	wxTimer* oneSecondTimer;
+	void OnTimerElapsed(wxEvent& event);
+
+	// Proof of concept for capturing an image of the screen
+	// May have been of use for https://www.cruisersforum.com/forums/f134/two-things-288437.html
+	void CreateScreenShot();
 
 	// OpenCPN's Own Ship Heading Predictor Length
 	int headingPredictorLength;

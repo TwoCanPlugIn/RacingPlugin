@@ -38,7 +38,7 @@ extern "C" DECL_EXP void destroy_pi(opencpn_plugin* p) {
 }
 
 // Constructor
-RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_116(ppimgr), wxEvtHandler() {
+RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_118(ppimgr), wxEvtHandler() {
 	// Initialize the plugin bitmap
 	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
 

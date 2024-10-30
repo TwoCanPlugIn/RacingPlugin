@@ -124,7 +124,7 @@ int defaultTimerValue;
 
 
 // The Racing plugin
-class RacingPlugin : public opencpn_plugin_116, public wxEvtHandler {
+class RacingPlugin : public opencpn_plugin_118, public wxEvtHandler {
 
 public:
 	// The constructor

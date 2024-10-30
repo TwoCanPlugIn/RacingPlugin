@@ -42,7 +42,7 @@ set(VERSION_TWEAK "0")
 set(VERSION_DATE "21/05/2023")
 set(OCPN_MIN_VERSION "ov50")
 set(OCPN_API_VERSION_MAJOR "1")
-set(OCPN_API_VERSION_MINOR "16")
+set(OCPN_API_VERSION_MINOR "18")
 set(TP_COMMENT "Release for O5 using CI, FrontEnd v2")
 
 set(PARENT "opencpn")

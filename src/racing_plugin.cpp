@@ -42,7 +42,7 @@ RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_118(ppimgr), wxEvtHand
 	// Initialize the plugin bitmap
 	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
 
-	pluginBitmap = GetBitmapFromSVGFile(pluginFolder + _T("racing_icon.svg"), 32, 32);
+	pluginBitmap = GetBitmapFromSVGFile(pluginFolder + _T("racing_icon_toggled.svg"), 32, 32);
 	
 	// Initialize Advanced User Interface Manager (AUI)
 	auiManager = GetFrameAuiManager();
@@ -85,6 +85,7 @@ int RacingPlugin::Init(void) {
 		configSettings->Read(_T("SendNMEA2000Wind"), &generatePGN130306, false);
 		configSettings->Read(_T("SendNMEA0183Wind"), &generateMWVSentence, false);
 		// Get the length of OpenCPN's Ship's Heading Predictor Length
+		// It is used for determining the length of the apparent wind arrow on the canvas
 		configSettings->SetPath(_T("Settings"));
 		configSettings->Read(_T("OwnshipHDTPredictorMiles"), &headingPredictorLength, 1);
 	}

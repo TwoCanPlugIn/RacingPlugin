@@ -46,6 +46,10 @@ extern double currentLongitude;
 extern double courseOverGround;
 extern double speedOverGround;
 
+// Countdown Timer Value
+extern int defaultTimerValue;
+
+// If the Countdown Timer is visible 
 extern bool racingWindowVisible;
 
 class RacingWindow : public RacingWindowBase {

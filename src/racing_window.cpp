@@ -163,16 +163,15 @@ void RacingWindow::OnReset(wxCommandEvent &event) {
 }
 
 void RacingWindow::OnStart(wxCommandEvent &event) {
-	// BUG BUG Should have user definable count down timer setting, currently hardcoded to 5 minutes
-	totalSeconds = 300;
+	totalSeconds = defaultTimerValue;
 	stopWatch->Start(1000, wxTIMER_CONTINUOUS);
 } 
 
 void RacingWindow::OnStarboard(wxCommandEvent &event) {
 	// Save the position for the Starboard Mark
-	starboardLatitude = currentLatitude; // Test data for my Menton log 43.75847
-	starboardLongitude = currentLatitude; // Test data for my Menton log 7.49575
-	starboardMark = TRUE;
+	starboardLatitude = currentLatitude;
+	starboardLongitude = currentLongitude;
+	starboardMark = true;
 	buttonStarboard->SetBackgroundColour(*wxGREEN);
 	// Notify parent to drop a waypoint at the starboard end
 	wxCommandEvent *commandEvent = new wxCommandEvent(wxEVT_RACE_DIALOG_EVENT, RACE_DIALOG_STBD);
@@ -185,9 +184,9 @@ void RacingWindow::OnStarboard(wxCommandEvent &event) {
 
 void RacingWindow::OnPort(wxCommandEvent &event) {
 	// Save the position for the Port Mark
-	portLatitude = currentLatitude; // Test data for my Menton log 43.757188
-	portLongitude = currentLongitude; // Test data for my Menton log 7.497963
-	portMark = TRUE;
+	portLatitude = currentLatitude;
+	portLongitude = currentLongitude;
+	portMark = true;
 	buttonPort->SetBackgroundColour(*wxGREEN);	
 	// Notify parent to drop a waypoint at the port end
 	wxCommandEvent *commandEvent = new wxCommandEvent(wxEVT_RACE_DIALOG_EVENT, RACE_DIALOG_PORT);
@@ -203,8 +202,8 @@ void RacingWindow::OnCancel(wxCommandEvent &event) {
 }
 
 void RacingWindow::ResetTimer(void) {
-	// Reset the countdown timer for 5 minutes
-	totalSeconds = 300;
+	// Reset the countdown timer
+	totalSeconds = defaultTimerValue;
 	minutes = trunc(totalSeconds / 60);
 	seconds = totalSeconds - (minutes * 60);
 	labelTimer->SetLabel(wxString::Format("%1d:%02d",minutes, seconds));

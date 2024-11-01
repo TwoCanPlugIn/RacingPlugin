@@ -58,8 +58,15 @@
 
 // Plugin Toolbox dialog
 #include "racing_toolbox.h"
+
 // "Wind Wizard" gauge, similar to B&G SailSteer
 #include "racing_gauge.h"
+
+// OpenGL 
+#include "pidc.h"
+
+// OpenCPN Device Context Abstraction Layer
+#include "racing_graphics.h"
 
 // wxWidgets include files
 
@@ -156,6 +163,10 @@ public:
 	void OnCloseToolboxPanel(int page_sel, int ok_apply_cancel);
 	void ShowPreferencesDialog(wxWindow* parent);
 	void SetPluginMessage(wxString& message_id, wxString& message_body);
+	bool RenderGLOverlayMultiCanvas(wxGLContext* pcontext, PlugIn_ViewPort* vp,
+		int canvasIndex, int priority);
+	bool RenderOverlayMultiCanvas(wxDC& dc, PlugIn_ViewPort* vp,
+		int canvasIndex, int priority);
 
 
 	// Event Handler for events received from the Race Start Display Window
@@ -284,6 +295,7 @@ private:
 	// Start line marks
 	wxString starboardMarkGuid;
 	wxString portMarkGuid;
+	double starboardMarkLatitude, starboardMarkLongitude, portMarkLatitude, portMarkLongitude;
 
 };
 

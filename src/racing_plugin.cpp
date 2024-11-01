@@ -191,7 +191,8 @@ int RacingPlugin::Init(void) {
 	// Notify OpenCPN what events we want to receive callbacks for
 	return (WANTS_CONFIG | WANTS_PREFERENCES | INSTALLS_TOOLBOX_PAGE | 
 		WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL | WANTS_NMEA_EVENTS |
-		WANTS_PLUGIN_MESSAGING | USES_AUI_MANAGER | WANTS_LATE_INIT);
+		WANTS_PLUGIN_MESSAGING | USES_AUI_MANAGER | WANTS_LATE_INIT |
+		WANTS_OVERLAY_CALLBACK | WANTS_OPENGL_OVERLAY_CALLBACK);
 }
 
 void RacingPlugin::LateInit(void) {
@@ -413,6 +414,216 @@ void RacingPlugin::ShowPreferencesDialog(wxWindow* parent) {
 		}
 	}
 }
+
+// Drawing on the canvas when in multi canvas mode and not using OpenGL
+bool RacingPlugin::RenderOverlayMultiCanvas(wxDC& dc, PlugIn_ViewPort* vp,
+	int canvasIndex, int priority) {
+
+	// Only draw in legacy mode
+	if (priority == OVERLAY_LEGACY) {
+
+		if (dc.IsOk()) {
+
+			if ((canvasIndex == 0) || ((canvasIndex == 1) && (showMultiCanvas))) {
+
+				if (showStartline) {
+
+					// Draw a line on the chart to indicate the start line
+					if ((!starboardMarkGuid.IsEmpty()) && (!portMarkGuid.IsEmpty())) {
+						// Obtain the screen cordinates for the starboard and port ends of the start line
+						wxPoint starboardScreenPoint, portScreenPoint;
+						GetCanvasPixLL(vp, &starboardScreenPoint, starboardMarkLatitude, starboardMarkLongitude);
+						GetCanvasPixLL(vp, &portScreenPoint, portMarkLatitude, portMarkLongitude);
+
+						dc.SetPen(*wxBLACK_PEN);
+						dc.DrawLine(starboardScreenPoint, portScreenPoint);
+					}
+				}
+
+				if (showWindAngles) {
+
+					// Example of using a graphics context, so we can use alpha channels, rotate text etc.
+					wxMemoryDC* memoryDC;
+					memoryDC = wxDynamicCast(&dc, wxMemoryDC);
+					wxGraphicsContext* graphicsContext = wxGraphicsContext::Create(*memoryDC);
+
+					// Draw an annular ring centred around the boat
+					graphicsContext->SetPen(*wxBLACK_PEN);
+					// The following specifies a light grey brush with an alpha channel (opacity/transparency)
+					graphicsContext->SetBrush(wxColour(100, 100, 100, 50));
+					wxGraphicsPath graphicsPath = graphicsContext->CreatePath();
+					// Convert our current position to screen co-ordinates
+					wxPoint boatLocation, ringLocation;
+					GetCanvasPixLL(vp, &boatLocation, currentLatitude, currentLongitude);
+					// Draw a transparent circle around the boat, the radius equal to the heading predictor length
+					// Seems like there is no way to calculate a fixed length so given 1' of latitude = 1NM
+					double oneMinuteAway = currentLatitude + (headingPredictorLength * 0.0166f);
+					GetCanvasPixLL(vp, &ringLocation, oneMinuteAway, currentLongitude);
+					graphicsPath.AddCircle(boatLocation.x, boatLocation.y, abs(boatLocation.y - ringLocation.y));
+					graphicsContext->FillPath(graphicsPath);
+
+					// Draw apparent wind angle centred around the boat
+					if ((!isnan(apparentWindAngle)) && (!isnan(headingMagnetic))) {
+						double drawnAngle = apparentWindAngle + headingMagnetic;
+						if (drawnAngle < 0) {
+							drawnAngle += 360.0;
+						}
+						drawnAngle = fmod(drawnAngle, 360.0);
+
+						// Remember, 0 degress is at 3'oclock on the screen !
+						drawnAngle -= 90;
+
+						double radians;
+						radians = drawnAngle * M_PI / 180;
+
+						wxPoint2DDouble windArrow[3];
+						windArrow[0].m_x = (cos(radians) * 10) + boatLocation.x;
+						windArrow[0].m_y = (sin(radians) * 10) + boatLocation.y;
+						windArrow[1].m_x = (cos(radians + 0.088) * abs(boatLocation.y - ringLocation.y)) + boatLocation.x;
+						windArrow[1].m_y = (sin(radians + 0.088) * abs(boatLocation.y - ringLocation.y)) + boatLocation.y;
+						windArrow[2].m_x = (cos(radians - 0.088) * abs(boatLocation.y - ringLocation.y)) + boatLocation.x;
+						windArrow[2].m_y = (sin(radians - 0.088) * abs(boatLocation.y - ringLocation.y)) + boatLocation.y;
+
+						// An example of drawing using a gradient.
+						wxGraphicsGradientStops stops;
+						stops.SetStartColour(wxColor(255, 153, 51)); // Orangle
+						stops.SetEndColour(wxColour(255, 229, 204)); // Light Orange
+						graphicsContext->SetBrush(graphicsContext->CreateLinearGradientBrush(windArrow[0].m_x, windArrow[0].m_y,
+							windArrow[2].m_x, windArrow[2].m_y, stops));
+						graphicsContext->SetPen(wxPen(wxColor(255, 153, 51), 1, wxPENSTYLE_SOLID));
+						graphicsContext->DrawLines(WXSIZEOF(windArrow), windArrow);
+						graphicsContext->Flush();
+					}
+				}
+
+				if (showLayLines) {
+					// BUG BUG ToDo
+				}
+
+			}
+			return true;
+		}
+		wxLogDebug("Race Plugin, Canvas DC not OK");
+		return false;
+	}
+	wxLogDebug("Race Plugin, OpenCPN not in legacy mode, %d", priority);
+	return false;
+}
+
+bool RacingPlugin::RenderGLOverlayMultiCanvas(wxGLContext* pcontext, PlugIn_ViewPort* vp,
+	int canvasIndex, int priority) {
+
+	// BUG BUG No idea what the other priorities do?? OVERLAY_OVER_SHIPS, OVERLAY_OVER_UI,
+	if (priority == OVERLAY_OVER_EMBOSS) {
+
+		if (pcontext->IsOK()) {
+
+			RacingGraphics* rc = new RacingGraphics();
+
+			if ((canvasIndex == 0) || ((canvasIndex == 1) && (showMultiCanvas))) {
+
+				if (showStartline) {
+
+					// Draw a line on the chart to indicate the start line
+					if ((!starboardMarkGuid.IsEmpty()) && (!portMarkGuid.IsEmpty())) {
+						// Obtain the screen cordinates for the starboard and port ends of the start line
+						wxPoint starboardScreenPoint, portScreenPoint;
+						GetCanvasPixLL(vp, &starboardScreenPoint, starboardMarkLatitude, starboardMarkLongitude);
+						GetCanvasPixLL(vp, &portScreenPoint, portMarkLatitude, portMarkLongitude);
+						rc->SetPen(*wxBLACK_PEN);
+						rc->DrawLine(starboardScreenPoint.x, starboardScreenPoint.y,
+							portScreenPoint.x, portScreenPoint.y, true);
+
+						// Draw a true wind direction arrow centred on the start boat
+						if (!isnan(trueWindDirection)) {
+							double drawnAngle = trueWindDirection;
+							if (drawnAngle < 0) {
+								drawnAngle += 360.0;
+							}
+							drawnAngle = fmod(drawnAngle, 360.0);
+
+							drawnAngle -= 90;
+
+							double radians;
+							radians = drawnAngle * M_PI / 180;
+
+							wxPoint windArrow[4];
+							windArrow[0].x = (cos(radians) * 10) + starboardScreenPoint.x;
+							windArrow[0].y = (sin(radians) * 10) + starboardScreenPoint.y;
+							windArrow[1].x = (cos(radians + 0.088) * 70) + starboardScreenPoint.x;
+							windArrow[1].y = (sin(radians + 0.088) * 70) + starboardScreenPoint.y;
+							windArrow[2].x = (cos(radians - 0.088) * 70) + starboardScreenPoint.x;
+							windArrow[2].y = (sin(radians - 0.088) * 70) + starboardScreenPoint.y;
+							windArrow[3].x = (cos(radians) * 10) + starboardScreenPoint.x;
+							windArrow[3].y = (sin(radians) * 10) + starboardScreenPoint.y;
+
+							rc->SetPen(wxPen(*wxBLUE, 1, wxPENSTYLE_SOLID));
+							rc->SetBrush(*wxBLUE_BRUSH);
+							rc->DrawLines(WXSIZEOF(windArrow), windArrow);
+						}
+					}
+				}
+
+				if (showWindAngles) {
+
+					// Draw an annular ring centred around the boat with apparent wind direction indication
+					rc->SetPen(*wxBLACK_PEN);
+					rc->SetBrush(wxColour(100, 100, 100, 50));
+					// Convert our current position to screen co-ordinates
+					wxPoint boatLocation, ringLocation;
+					GetCanvasPixLL(vp, &boatLocation, currentLatitude, currentLongitude);
+					// Draw a transparent circle around the boat
+					double oneMinuteAway = currentLatitude + (headingPredictorLength * 0.0166f);
+					GetCanvasPixLL(vp, &ringLocation, oneMinuteAway, currentLongitude);
+					rc->StrokeCircle(boatLocation.x, boatLocation.y, abs(boatLocation.y - ringLocation.y));
+
+					// Draw apparent wind angle centred around the boat
+					if ((!isnan(apparentWindAngle)) && (!isnan(headingMagnetic))) {
+						double drawnAngle = apparentWindAngle + headingMagnetic;
+						if (drawnAngle < 0) {
+							drawnAngle += 360.0f;
+						}
+						drawnAngle = fmod(drawnAngle, 360.0f);
+
+						drawnAngle -= 90;
+
+						double radians;
+						radians = drawnAngle * M_PI / 180;
+
+						wxPoint windArrow[4];
+						windArrow[0].x = (cos(radians) * 10) + boatLocation.x;
+						windArrow[0].y = (sin(radians) * 10) + boatLocation.y;
+						windArrow[1].x = (cos(radians + 0.088) * abs(boatLocation.y - ringLocation.y)) + boatLocation.x;
+						windArrow[1].y = (sin(radians + 0.088) * abs(boatLocation.y - ringLocation.y)) + boatLocation.y;
+						windArrow[2].x = (cos(radians - 0.088) * abs(boatLocation.y - ringLocation.y)) + boatLocation.x;
+						windArrow[2].y = (sin(radians - 0.088) * abs(boatLocation.y - ringLocation.y)) + boatLocation.y;
+						windArrow[3].x = (cos(radians) * 10) + boatLocation.x;
+						windArrow[3].y = (sin(radians) * 10) + boatLocation.y;
+
+						rc->SetPen(wxPen(wxColor(255, 153, 51), 1, wxPENSTYLE_SOLID));
+						rc->SetBrush(wxColor(255, 153, 51));
+						// Trying this just to see what it does...
+						rc->DrawPolygonTessellated(WXSIZEOF(windArrow), windArrow);
+					}
+				}
+				if (showLayLines) {
+					// BUG BUG ToDo
+				}
+			}
+
+			return true;
+		}
+		else {
+			wxLogDebug("Race Plugin, Canvas GLContext not OK");
+			return false;
+		}
+	}
+	else {
+		wxLogDebug("Race Plugin, OpenCPN not in Emboss Mode, Current Mode: %d", priority);
+		return false;
+	}
+}
+
 
 // When a route or waypoint is active, OpenCPN provides distance, bearing etc. to the waypoint
 void RacingPlugin::SetActiveLegInfo(Plugin_Active_Leg_Info& pInfo) {
@@ -809,24 +1020,27 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
 		PlugIn_Waypoint waypoint;
 		waypoint.m_IsVisible = true;
 		waypoint.m_MarkName = _T("Starboard");
+		waypoint.m_IconName = _T("Marks-Race-Committee-Start-Boat");
 		starboardMarkGuid = GetNewGUID();
 		waypoint.m_GUID = starboardMarkGuid;
-		waypoint.m_lat = currentLatitude; // Test data 43.75847; 
-		waypoint.m_lon = currentLongitude; // Test data 7.49575; 
+		waypoint.m_lat = currentLatitude; 
+		waypoint.m_lon = currentLongitude;
+		starboardMarkLatitude = currentLatitude;
+		starboardMarkLongitude = currentLongitude;
 		AddSingleWaypoint(&waypoint, false);
 		break;
 	}
 	case RACE_DIALOG_PORT: {
 		PlugIn_Waypoint waypoint;
 		waypoint.m_IsVisible = true;
-		waypoint.m_MarkName = _T("Man Overboard");
-		waypoint.m_IconName = _T("Mob");
+		waypoint.m_MarkName = _T("Port");
+		waypoint.m_IconName = _T("Marks-Race-Start");
 		portMarkGuid = GetNewGUID();
 		waypoint.m_GUID = portMarkGuid;
-		//waypoint.m_lat = currentLatitude; // Test data 43.757188; 
-		//waypoint.m_lon = currentLongitude; // Test data 7.497963;
-		waypoint.m_lat = -38.1085;
-		waypoint.m_lon = 144.3989;
+		waypoint.m_lat = currentLatitude;
+		waypoint.m_lon = currentLongitude;
+		portMarkLatitude = currentLatitude;
+		portMarkLongitude = currentLongitude;
 		AddSingleWaypoint(&waypoint, false);
 		break;
 	}

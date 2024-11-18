@@ -76,15 +76,7 @@ void RacingWindow::Initialize(void) {
 }
 
 void RacingWindow::OnClose(wxCloseEvent& event) {
-	if (stopWatch->IsRunning()) {
-		stopWatch->Stop();
-	}
-
-	stopWatch->Disconnect(stopWatch->GetId(), wxEVT_TIMER, wxTimerEventHandler(RacingWindow::OnTimer));
-
-	if (stopWatch != nullptr) {
-		delete stopWatch;
-	}
+	Finish();
 
 	// Notify the parent we have closed, so that it can update the toolbar state
 	racingWindowVisible = false;
@@ -94,6 +86,23 @@ void RacingWindow::OnClose(wxCloseEvent& event) {
 
 	event.Skip();
 }
+
+// Cleanup
+void RacingWindow::Finish() {
+
+	if (stopWatch != nullptr) {
+
+		if (stopWatch->IsRunning()) {
+			stopWatch->Stop();
+		}
+
+		stopWatch->Disconnect(stopWatch->GetId(), wxEVT_TIMER, wxTimerEventHandler(RacingWindow::OnTimer));
+
+		delete stopWatch;
+	}
+
+}
+
 
 
 void RacingWindow::OnTimer(wxTimerEvent& event) {

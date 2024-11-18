@@ -100,7 +100,8 @@ int RacingPlugin::Init(void) {
 
 	// Add the toolbar button 
 	// Note that OpenCPN does not implement the rollover state
-	racingToolbar = InsertPlugInToolSVG(_T(PLUGIN_COMMON_NAME), normalIcon, rolloverIcon, toggledIcon, wxITEM_CHECK, _("Race Start Display"), _T(""), NULL, -1, 0, this);
+	racingToolbar = InsertPlugInToolSVG(_T(PLUGIN_COMMON_NAME), std::move(normalIcon), 
+		std::move(rolloverIcon), std::move(toggledIcon), wxITEM_CHECK, _("Race Start Display"), _T(""), NULL, -1, 0, this);
 
 	racingWindowVisible = false;
 	
@@ -250,14 +251,15 @@ bool RacingPlugin::DeInit(void) {
 
 	// Cleanup up the Count Down Timer Window
 	if (racingWindowVisible) {
-		//racingWindow->Finish();
+		racingWindow->Finish();
 		delete racingWindow;
 	}
+
 
 	// Unwire the handler for the Count Down Timer Window events 
 	Disconnect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
 
-	return TRUE;
+	return true;
 }
 
 // UpdateAUI Status is invoked by OpenCPN when the saved AUI perspective is loaded
@@ -1088,17 +1090,26 @@ wxString RacingPlugin::GetNetworkInterface(wxString selectedProtocol) {
 // Adopted from Dashboard Tactics
 void RacingPlugin::CalculateTrueWind() {
 	if (apparentWindAngle < 180.0f) {
-		trueWindAngle = 90.0f - (180.0f / M_PI * atan((apparentWindSpeed * cos(apparentWindAngle * M_PI / 180.) - boatSpeed) / (apparentWindSpeed * sin(apparentWindAngle * M_PI / 180.))));
+		trueWindAngle = 90.0f - (180.0f / M_PI * atan((apparentWindSpeed * cos(apparentWindAngle * M_PI /  180.0f) - boatSpeed) / (apparentWindSpeed * sin(apparentWindAngle * M_PI /  180.0f))));
 	}
 	else if (apparentWindAngle > 180.0f) {
-		trueWindAngle = 360.0f - (90.0f - (180.0f / M_PI * atan((apparentWindSpeed * cos((180. - (apparentWindAngle - 180.)) * M_PI / 180.) - boatSpeed) / (apparentWindSpeed * sin((180.0f - (apparentWindAngle - 180.0f)) * M_PI / 180.0f)))));
+		trueWindAngle = 360.0f - (90.0f - (180.0f / M_PI * atan((apparentWindSpeed * cos((180.0f- (apparentWindAngle -  180.0f)) * M_PI /  180.0f) - boatSpeed) / (apparentWindSpeed * sin((180.0f - (apparentWindAngle - 180.0f)) * M_PI / 180.0f)))));
 	}
 	else {
 		trueWindAngle = 180.0f;
 	}
-	trueWindSpeed = sqrt(pow((apparentWindSpeed * cos(apparentWindAngle * M_PI / 180.)) - boatSpeed, 2) + pow(apparentWindSpeed * sin(apparentWindAngle * M_PI / 180.), 2));
+	trueWindSpeed = sqrt(pow((apparentWindSpeed * cos(apparentWindAngle * M_PI / 180.0f)) - boatSpeed, 2) + pow(apparentWindSpeed * sin(apparentWindAngle * M_PI /  180.0f), 2));
 
 	trueWindDirection = fmod(trueWindAngle + headingTrue, 360.0f);
+}
+
+void RacingPlugin::CalculateTrueWindV2() {
+
+	double u, v;
+	u = (boatSpeed * sin(headingTrue * M_PI / 180)) - (apparentWindSpeed * sin(apparentWindAngle * M_PI / 180.0f));
+	v = (boatSpeed * cos(headingTrue * M_PI / 180.0f)) - (apparentWindSpeed * cos(apparentWindAngle * M_PI / 180.0f));
+	trueWindSpeed = sqrt((u * u) + (v * v));
+	trueWindAngle = atan(u / v) * 180 / M_PI;
 }
 
 void RacingPlugin::CalculateDrift() {

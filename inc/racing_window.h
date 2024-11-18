@@ -64,6 +64,10 @@ public:
 	
 	// The plugin event handler to which we post events
 	wxEvtHandler *eventHandlerAddress;
+
+	// Cleanup
+	void Finish();
+
 	
 protected:
 	//overridden methods from the base class
@@ -101,7 +105,7 @@ private:
 	double SphericalCosines(double latitude1, double longitude1, double latitude2, double longitude2);
 	double Bearing(double latitude1, double longitude1, double latitude2, double longitude2);
 	bool IsWithinBoundingBox(double latitude, double longitude);
-		
+	
 	// Parent Window size
 	int parentWidth;
 	int parentHeight;

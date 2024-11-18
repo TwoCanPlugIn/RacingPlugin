@@ -276,7 +276,7 @@ private:
 	void CalculateTrueWind();
 
 	// Another version
-	void CalculateTrueWindVersion2(void);
+	void CalculateTrueWindV2();
 
 	// Calculate Drift using difference between COG & Heading.
 	void CalculateDrift();

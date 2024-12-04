@@ -49,6 +49,7 @@ public:
 	void SetDriftSpeed(double driftSpeed);
 	void SetDriftAngle(double driftAngle);
 	void ShowBearing(bool show);
+	void SetNightMode(bool mode);
 
 protected:
 	void OnPaint(wxPaintEvent& evt);
@@ -75,6 +76,7 @@ private:
 	double driftAngle = 0.0f;
 	double driftSpeed = 0.0f;
 	double velocityMadeGood;
+	bool nightMode = false;
 	bool displayBearingToWaypoint = false;
 
 };

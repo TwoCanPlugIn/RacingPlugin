@@ -38,13 +38,11 @@ extern bool showMultiCanvas;
 extern int tackingAngle;
 extern int defaultTimerValue;
 
-
 class RacingToolbox : public RacingToolboxBase {
 	
 public:
 	RacingToolbox(wxWindow* parent);
 	~RacingToolbox();
-	
 	
 protected:
 	// Overridden methods from the base class
@@ -56,7 +54,6 @@ protected:
 	void OnCanvasChanged(wxCommandEvent& event);
 private:
 	bool settingsDirty;
-	
 };
 
 #endif

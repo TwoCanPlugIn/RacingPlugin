@@ -1,4 +1,4 @@
-// Copyright(C) 2021 by Steven Adler
+// Copyright(C) 2024 by Steven Adler
 //
 // This file is part of Racing Plugin, a plugin for OpenCPN.
 //
@@ -55,7 +55,7 @@ void WindWizard::OnEraseBackground(wxEraseEvent& WXUNUSED(evt)) {
 }
 
 void WindWizard::OnSize(wxSizeEvent& event) {
-	this->SetSize(event.GetSize());
+	//this->SetSize(event.GetSize());
 }
 
 void WindWizard::SetMagneticHeading(double heading) {
@@ -111,6 +111,10 @@ void WindWizard::ShowBearing(bool show) {
 	displayBearingToWaypoint = show;
 }
 
+void WindWizard::SetNightMode(bool mode) {
+	nightMode = mode;
+}
+
 double WindWizard::NormalizeHeading(double& heading) {
 	if (!isnan(heading)) {
 		if (heading < 0) {
@@ -134,6 +138,13 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 		wxGraphicsContext* gc = wxGraphicsContext::Create(dc);
 
 		if (gc) {
+
+			if (nightMode) {
+				SetBackgroundColour(*wxBLACK);
+			}
+			else {
+				SetBackgroundColour(*wxWHITE);
+			}
 
 			// Note to self, investigate device independent pixels
 			// eg. dc.FromDIP(wxSize(x, y));
@@ -165,8 +176,14 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			double innerRing = radius - textHeight;
 
 			// Make an annular ring for the compass rose
-			gc->SetPen(wxPen(*wxBLACK,2));
-			gc->SetBrush(*wxWHITE_BRUSH);
+			if (nightMode) {
+				gc->SetPen(wxPen(*wxWHITE, 2));
+				gc->SetBrush(*wxGREY_BRUSH);
+			}
+			else {
+				gc->SetPen(wxPen(*wxBLACK, 2));
+				gc->SetBrush(*wxWHITE_BRUSH);
+			}
 
 			wxGraphicsPath compassRose = gc->CreatePath();
 			compassRose.AddCircle(xCentre, yCentre, radius);
@@ -209,6 +226,15 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 
 			gc->StrokePath(portWindGauge);
 			gc->FillPath(portWindGauge);
+
+			if (nightMode) {
+				dc.SetPen(*wxWHITE_PEN);
+				dc.SetTextForeground(*wxWHITE);
+			}
+			else {
+				dc.SetPen(*wxBLACK_PEN);
+				dc.SetTextForeground(*wxBLACK);
+			}
 
 			// Annotate the wind rose with tick marks and labels
 			for (int degrees = 0; degrees < 360; degrees += 10) {
@@ -264,8 +290,13 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			}
 			
 			// Draw the magnetic heading inside a rounded rectangle, located at 12 o'clock
+			if (nightMode) {
+				dc.SetTextForeground(*wxRED);
+			}
+			else {
+				dc.SetTextForeground(*wxWHITE);
+			}
 			dc.SetBrush(*wxBLACK_BRUSH);
-			dc.SetTextForeground(*wxWHITE);
 			dc.SetFont(textFont.Bold().MakeLarger());
 			label = wxString::Format("%d", static_cast<int>(magneticHeading));
 			dc.GetTextExtent(label, &textWidth, &textHeight, &textDescent, &textLeading, &dc.GetFont());
@@ -273,7 +304,12 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			dc.DrawRoundedRectangle(xCentre - (textWidth / 2.0f) -2, yCentre - radius - 2, textWidth + 4, textHeight + 4, 3.0f);
 			dc.DrawText(label, xCentre - (textWidth / 2.0f), yCentre - radius);
 			// Restore normal font.
-			dc.SetTextForeground(*wxBLACK);
+			if (nightMode) {
+				dc.SetTextForeground(*wxRED);
+			}
+			else {
+				dc.SetTextForeground(*wxBLACK);
+			}
 			dc.SetFont(textFont);
 
 			// Draw an arrow to indicate Apparent Wind Angle
@@ -293,7 +329,7 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			arrow[1].m_y = (sin(radians + 0.09f) * (outerRing)) + yCentre;
 			arrow[2].m_x = (cos(radians - 0.09f) * (outerRing)) + xCentre;
 			arrow[2].m_y = (sin(radians - 0.09f) * (outerRing)) + yCentre;
-
+			gc->SetPen(wxPen(wxColor(255, 153, 51), 1));
 			gc->SetBrush(wxColor(255,153,51)); 
 			gc->DrawLines(WXSIZEOF(arrow), arrow);
 
@@ -313,7 +349,7 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			arrow[1].m_y = (sin(radians + 0.09f) * (outerRing)) + yCentre;
 			arrow[2].m_x = (cos(radians - 0.09f) * (outerRing)) + xCentre;
 			arrow[2].m_y = (sin(radians - 0.09f) * (outerRing)) + yCentre;
-
+			gc->SetPen(wxPen(wxColor(51, 153, 255), 1));
 			gc->SetBrush(wxColor(51, 153, 255));
 			gc->DrawLines(WXSIZEOF(arrow), arrow);
 
@@ -336,7 +372,7 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			dc.SetFont(labelFont);
 
 			// Boat Speed
-			label = CreateLabel(boatSpeed, getUsrSpeedUnit_Plugin());
+			label = CreateLabel(toUsrSpeed_Plugin(boatSpeed), getUsrSpeedUnit_Plugin());
 			dc.GetTextExtent(label, &textWidth, &textHeight,0,0, &labelFont);
 			dc.DrawText(label, 4, yCentre - radius - textHeight);
 
@@ -345,7 +381,7 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			dc.DrawText(label, 4, yCentre - radius);
 
 			// Velocity Made Good
-			label = CreateLabel(velocityMadeGood, getUsrSpeedUnit_Plugin());
+			label = CreateLabel(toUsrSpeed_Plugin(velocityMadeGood), getUsrSpeedUnit_Plugin());
 			dc.GetTextExtent(label, &textWidth, &textHeight, 0, 0, &labelFont);
 			dc.DrawText(label, this->GetClientSize().GetWidth() - textWidth - 4, yCentre - radius - textHeight);
 
@@ -354,7 +390,7 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			dc.DrawText(label, this->GetClientSize().GetWidth() - textWidth - 4, yCentre - radius);
 
 			// Speed Over Ground
-			label = CreateLabel(speedOverGround, getUsrSpeedUnit_Plugin());
+			label = CreateLabel(toUsrSpeed_Plugin(speedOverGround), getUsrSpeedUnit_Plugin());
 			dc.GetTextExtent(label, &textWidth, &textHeight, 0, 0, &labelFont);
 			dc.DrawText(label, 4, yCentre + radius);
 
@@ -363,7 +399,7 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			dc.DrawText(label, 4, yCentre + radius - textHeight);
 
 			// True Wind Speed
-			label = CreateLabel(trueWindSpeed, getUsrSpeedUnit_Plugin());
+			label = CreateLabel(toUsrSpeed_Plugin(trueWindSpeed), getUsrSpeedUnit_Plugin());
 			dc.GetTextExtent(label, &textWidth, &textHeight, 0, 0, &labelFont);
 			dc.DrawText(label, this->GetClientSize().GetWidth() - textWidth - 4, yCentre + radius);
 
@@ -372,7 +408,7 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			dc.DrawText(label, this->GetClientSize().GetWidth() - textWidth - 4, yCentre + radius - textHeight);
 
 			// Draw the Apparent Wind speed under the boat icon
-			label = CreateLabel(apparentWindSpeed, getUsrSpeedUnit_Plugin());
+			label = CreateLabel(toUsrSpeed_Plugin(apparentWindSpeed), wxEmptyString);
 			dc.GetTextExtent(label, &textWidth, &textHeight, 0, 0, &labelFont);
 			dc.DrawText(label, xCentre - (textWidth / 2.0f) , yCentre + (radius / 2.0f));
 			dc.SetPen(*wxGREY_PEN);
@@ -390,6 +426,12 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			boatIcon.AddQuadCurveToPoint(xCentre + half, yCentre - quarter, xCentre, yCentre - threequarter);
 			boatIcon.MoveToPoint(xCentre + quarter, yCentre + half);
 			boatIcon.AddLineToPoint(xCentre - quarter, yCentre + half);
+			if (nightMode) {
+				gc->SetPen(wxPen(*wxWHITE, 2));
+			}
+			else {
+				gc->SetPen(wxPen(*wxBLACK, 2));
+			}
 			gc->StrokePath(boatIcon);
 
 			// Draw an arrow and label to indicate drift

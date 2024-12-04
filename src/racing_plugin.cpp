@@ -1,4 +1,4 @@
-// Copyright(C) 2018-2020 by Steven Adler
+// Copyright(C) 2018-2024 by Steven Adler
 //
 // This file is part of Racing plugin for OpenCPN.
 //
@@ -24,8 +24,11 @@
 // Version History: 
 // 1.0 Initial Release
 // 1.01 - 9/7/2020, Support for OpenCPN Plugin Manager/CI/Cloudsmith stuff
-//
-
+// 1.1 - 4/11/2024, Support for OpenCPM 5.8 Listener API's, "Wind Wizard gauge", Render Overlays
+// 1.2 - 22/11/2024 OpenCPN API 1.19, SignalK/Messaging Listeners. 
+// 
+// BUG BUG Note Broken OCPN Methods, LateInit, SetActiveLegInfo, SetupToolboxPanel, SetPluginMessage
+// BUG BUG Investigate changing new/delete to std::unique_ptr/std::make_unique
 #include "racing_plugin.h"
 
 // The class factories, used to create and destroy instances of the PlugIn
@@ -38,85 +41,60 @@ extern "C" DECL_EXP void destroy_pi(opencpn_plugin* p) {
 }
 
 // Constructor
-RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_118(ppimgr), wxEvtHandler() {
-	// Initialize the plugin bitmap
-	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
-
-	pluginBitmap = GetBitmapFromSVGFile(pluginFolder + _T("racing_icon_toggled.svg"), 32, 32);
+RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_119(ppimgr), wxEvtHandler() {
 	
-	// Initialize Advanced User Interface Manager (AUI)
-	auiManager = GetFrameAuiManager();
-
-	// One second timer updates the "Wind Wizard" gauge
-	oneSecondTimer = new wxTimer();
-	oneSecondTimer->Bind(wxEVT_TIMER, &RacingPlugin::OnTimerElapsed, this);
-	oneSecondTimer->Start(1000, wxTIMER_CONTINUOUS);
-}
-
-// Destructor
-RacingPlugin::~RacingPlugin(void) {
-
-	if (oneSecondTimer->IsRunning()) {
-		oneSecondTimer->Stop();
-	}
-	oneSecondTimer->Unbind(wxEVT_TIMER, &RacingPlugin::OnTimerElapsed, this);
-	delete oneSecondTimer;
-}
-
-int RacingPlugin::Init(void) {
-	// Maintain a reference to the OpenCPN window to use as the parent for the Race Start Window
-	parentWindow = GetOCPNCanvasWindow();
-
-	// Maintain a reference to the OpenCPN configuration object 
-	configSettings = GetOCPNConfigObject();
-
-	// Initialize Localization catalogs
-	AddLocaleCatalog(_T("opencpn-race_start_display_pi"));
-
-	// Load Configuration Settings
-	if (configSettings) {
-		configSettings->SetPath(_T("/PlugIns/RacingPlugin"));
-		configSettings->Read(_T("StartLineBias"), &showStartline, false);
-		configSettings->Read(_T("Laylines"), &showLayLines, false);
-		configSettings->Read(_T("WindAngles"), &showWindAngles, false);
-		configSettings->Read(_T("DualCanvas"), &showMultiCanvas, false);
-		configSettings->Read(_T("StartTimer"), &defaultTimerValue, 300);
-		configSettings->Read(_T("Visible"), &isWindWizardVisible, false);
-		configSettings->Read(_T("SendNMEA2000Wind"), &generatePGN130306, false);
-		configSettings->Read(_T("SendNMEA0183Wind"), &generateMWVSentence, false);
-		// Get the length of OpenCPN's Ship's Heading Predictor Length
-		// It is used for determining the length of the apparent wind arrow on the canvas
-		configSettings->SetPath(_T("Settings"));
-		configSettings->Read(_T("OwnshipHDTPredictorMiles"), &headingPredictorLength, 1);
-	}
-
-	// Load plugin icons for the toolbar
-	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + _T("data") + wxFileName::GetPathSeparator();
-
-	// This assume the plugin is using Scaled Vector Graphics (SVG)
-	wxString normalIcon = pluginFolder + _T("racing_icon_normal.svg");
-	wxString toggledIcon = pluginFolder + _T("racing_icon_toggled.svg");
-	wxString rolloverIcon = pluginFolder + _T("racing_icon_rollover.svg");
-
-	// Add the toolbar button 
-	// Note that OpenCPN does not implement the rollover state
-	racingToolbar = InsertPlugInToolSVG(_T(PLUGIN_COMMON_NAME), std::move(normalIcon), 
-		std::move(rolloverIcon), std::move(toggledIcon), wxITEM_CHECK, _("Race Start Display"), _T(""), NULL, -1, 0, this);
-
-	racingWindowVisible = false;
-	
-	racingDialog = nullptr;
+	// Dialogs displayed by the plugin
+	windWizard = nullptr;
 	racingWindow = nullptr;
 	racingToolbox = nullptr;
 	racingSettings = nullptr;
 
+	// Initialize the plugin bitmap
+	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + "data" + wxFileName::GetPathSeparator();
+	pluginBitmap = GetBitmapFromSVGFile(pluginFolder + "racing_icon_toggled.svg", 32, 32);
+}
+
+// Destructor
+RacingPlugin::~RacingPlugin(void) {
+}
+
+int RacingPlugin::Init(void) {
+
+	// Maintain a reference to the OpenCPN window to use as the parent Window for plugin dialogs
+	parentWindow = GetOCPNCanvasWindow();
+
+	// Maintain a reference to OpenCPN's Advanced User Interface Manager (AUI)
+	auiManager = GetFrameAuiManager();
+
+	// Load localized strings. Note to self, strings to be localized are prefixed with the _() macro
+	AddLocaleCatalog("opencpn-race_start_display_pi");
+
+	// Load Configuration Settings
+	LoadSettings();
+
+	// Load icons for the toolbar
+	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + "data" + wxFileName::GetPathSeparator();
+
+	// This assumes the plugin is using Scaled Vector Graphics (SVG)
+	wxString normalIcon = pluginFolder + "racing_icon_normal.svg";
+	wxString toggledIcon = pluginFolder + "racing_icon_toggled.svg";
+	wxString rolloverIcon = pluginFolder + "racing_icon_rollover.svg";
+
+	// Add the toolbar button 
+	// BUG BUG Note that OpenCPN does not implement the rollover state
+	racingToolbarId = InsertPlugInToolSVG(PLUGIN_COMMON_NAME, normalIcon, 
+		rolloverIcon, toggledIcon, wxITEM_CHECK, PLUGIN_COMMON_NAME, "", NULL, -1, 0, this);
+
+	// Default state for displaying the Countdown Timer dialog
+	isCountdownTimerVisible = false;
+
 	// Example of adding a context menu item
-	// This menu item is used to toggle the display of the "Wind Wizard" gauge
-	wxMenuItem* myMenu = new wxMenuItem(NULL, wxID_HIGHEST + 1, _T("Wind Wizard"), wxEmptyString, wxITEM_NORMAL, NULL);
-	racingContextMenuId = AddCanvasContextMenuItem(myMenu, this);
+	// This menu item is used to display the "Wind Wizard" gauge
+	wxMenuItem* wizardMenu = new wxMenuItem(NULL, wxID_HIGHEST + 1, "Wind Wizard", "a funky gauge", wxITEM_NORMAL, NULL);
+	racingContextMenuId = AddCanvasContextMenuItem(wizardMenu, this);
 
 	// Set up the listeners. NMEA 0183, NMEA 2000 and SignalK are used to obtain data 
-	// for boat speed, apparent wind angle & speed, NavData for position and heading
+	// for boat speed, apparent wind angle & speed and NavData for position and heading
 
 	// NMEA 0183 MWV Wind Sentence
 	wxDEFINE_EVENT(EVT_183_MWV, ObservedEvt);
@@ -134,7 +112,7 @@ int RacingPlugin::Init(void) {
 		HandleVHW(ev);
 		});
 
-	// NMEA 0183 DPT Depth
+	// NMEA 0183 DPT Depth Sentence
 	wxDEFINE_EVENT(EVT_183_DPT, ObservedEvt);
 	NMEA0183Id id_dpt = NMEA0183Id("DPT");
 	listener_dpt = std::move(GetListener(id_dpt, EVT_183_DPT, this));
@@ -166,7 +144,8 @@ int RacingPlugin::Init(void) {
 		HandleN2K_128259(ev);
 		});
 
-	// SignalK Listerner
+	// SignalK
+	// BUG BUG OpenCPN is yet to implement/export the GetSignalKPayload method
 	wxDEFINE_EVENT(EVT_SIGNALK, ObservedEvt);
 	SignalkId id_signalk = SignalkId("self");
 	listener_SignalK = std::move(GetListener(id_signalk, EVT_SIGNALK, this));
@@ -176,107 +155,122 @@ int RacingPlugin::Init(void) {
 
 	// OpenCPN Core NavData
 	wxDEFINE_EVENT(EVT_NAV_DATA, ObservedEvt);
-	listener_nav = GetListener(NavDataId(), EVT_NAV_DATA, this);
+	listener_nav = std::move(GetListener(NavDataId(), EVT_NAV_DATA, this));
 	Bind(EVT_NAV_DATA, [&](ObservedEvt ev) {
 		HandleNavData(ev);
 		});
 
+	// OpenCPN Messaging - Only implemented with API 1.19
+	// BUG BUG Doesn't work
+	wxDEFINE_EVENT(EVT_OCPN_MSG, ObservedEvt);
+	PluginMsgId msg_id = PluginMsgId("WMM_VARIATION_BOAT");
+	listener_msg = std::move(GetListener(msg_id, EVT_OCPN_MSG, this));
+	Bind(EVT_OCPN_MSG, [&](ObservedEvt ev) {
+		HandleMsgData(ev);
+		});
+	
 	// Retrieve a NMEA 2000 network interface which is used to transmit
 	// PGN 130306 with the calculated True Wind Angles and Speed.
-	// This is merely an example of writing to the NMEA 2000 Network
+	// This is an example of writing to the NMEA 2000 Network
 	n2kNetworkHandle = GetNetworkInterface("nmea2000");
 
-	// Wire up the event handler to receive events from the race start dialog
+	// Plugins need to register what NMEA 2000 PGN's they transmit. This is required for
+	// Actisense NGT-1 Adapters, presumably results in a null operation (NOP) for other interfaces
+	if (!n2kNetworkHandle.empty()) {
+		std::vector<int> transmittedPGN = { 130306 };
+		RegisterTXPGNs(n2kNetworkHandle, transmittedPGN);
+	}
+
+	// Wire up the event handler to receive events from the Countdown Timer dialog
 	Connect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
 
-
-	// Notify OpenCPN what events we want to receive callbacks for
-	return (WANTS_CONFIG | WANTS_PREFERENCES | INSTALLS_TOOLBOX_PAGE | 
-		WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL | WANTS_NMEA_EVENTS |
-		WANTS_PLUGIN_MESSAGING | USES_AUI_MANAGER | WANTS_LATE_INIT |
-		WANTS_OVERLAY_CALLBACK | WANTS_OPENGL_OVERLAY_CALLBACK);
-}
-
-void RacingPlugin::LateInit(void) {
-
-	// For some reason unbeknownst to me, the aui manager fails to wire up correctly if done
-	// in the constructor or init. Seems to wire up correctly here though....
-
-	// Load the "Wind Wizard" gauge into the AUI Manager
+	// Instantiate the "Wind Wizard" gauge
 	windWizard = new WindWizard(parentWindow);
 
-	// Initialize AUI, it is used to display the "Wind Wizard" gauge
+	// Add the "Wind Wizard" gauge to the AUI Manager
 	wxAuiPaneInfo paneInfo;
-	paneInfo.Name(_T(PLUGIN_COMMON_NAME));
-	paneInfo.Caption(_T("Wind Wizard"));
+	paneInfo.Name(PLUGIN_COMMON_NAME);
+	paneInfo.Caption("Wind Wizard");
 	paneInfo.CloseButton(true);
+	paneInfo.GripperTop(true);
 	paneInfo.Float();
-	paneInfo.Dockable(false);
-	paneInfo.FloatingSize(windWizard->GetMinSize());
 	paneInfo.MinSize(windWizard->GetMinSize());
 	paneInfo.Show(isWindWizardVisible);
 	auiManager->AddPane(windWizard, paneInfo);
-	auiManager->Connect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
 	auiManager->Update();
+	auiManager->Connect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
 
+	// BUG BUG LateInit broken in API 1.19, so invoke it here
+	LateInit();
+
+	// Notify OpenCPN what events we want to receive callbacks for
+	return (WANTS_CONFIG | WANTS_PREFERENCES | INSTALLS_TOOLBOX_PAGE |
+		WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL | WANTS_NMEA_EVENTS |
+		WANTS_PLUGIN_MESSAGING | USES_AUI_MANAGER | WANTS_LATE_INIT |
+		WANTS_OVERLAY_CALLBACK | WANTS_OPENGL_OVERLAY_CALLBACK |
+		WANTS_PRESHUTDOWN_HOOK);
+}
+
+// LateInit broken in API 1.19
+// Late init allows plugins to perform additional actions well after the plugin has been loaded
+void RacingPlugin::LateInit(void) {
+	
+	// One second timer updates the "Wind Wizard" gauge
+	// Optionally constructs and transmits NMEA 0183 & NMEA 2000 True Wind data
+	oneSecondTimer = new wxTimer();
+	oneSecondTimer->Connect(wxEVT_TIMER, wxTimerEventHandler(RacingPlugin::OnTimerElapsed), NULL, this);
+	oneSecondTimer->Start(1000, wxTIMER_CONTINUOUS);
+	wxLogMessage("Racing Plugin, Debug, LateInit called");
 }
 
 // OpenCPN is either closing down, or we have been disabled from the Preferences Dialog
 bool RacingPlugin::DeInit(void) {
 
 	// Save the current settings
-	if (configSettings) {
-		configSettings->SetPath(_T("/PlugIns/RacingPlugin"));
-		configSettings->Write(_T("StartLineBias"), showStartline);
-		configSettings->Write(_T("Laylines"), showLayLines);
-		configSettings->Write(_T("DualCanvas"), showMultiCanvas);
-		configSettings->Write(_T("WindAngles"), showWindAngles);
-		configSettings->Write(_T("StartTimer"), defaultTimerValue);
-		configSettings->Write(_T("Visible"), isWindWizardVisible);
-		configSettings->Write(_T("SendNMEA2000Wind"), generatePGN130306);
-		configSettings->Write(_T("SendNMEA0183Wind"), generateMWVSentence);
+	SaveSettings();
+
+	// Cleanup the One Second Timer
+	if (oneSecondTimer->IsRunning()) {
+		oneSecondTimer->Stop();
 	}
+	oneSecondTimer->Disconnect(wxEVT_TIMER, wxTimerEventHandler(RacingPlugin::OnTimerElapsed), NULL, this);
 
 	// Disconnect the Advanced User Interface manager
-	auiManager->Disconnect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
-	auiManager->UnInit();
 	auiManager->DetachPane(windWizard);
+	auiManager->Disconnect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
 	delete windWizard;
 
 	// Cleanup the toolbox page here because OnSetupToolbox is only called once at Startup.
-	// If we were to perform the cleanup in the OnCloseToolboxPane function, 
-	// we can never initialize it again.
+	// If we were to perform the cleanup in the OnCloseToolboxPane method, we can never initialize it again.
 	DeleteOptionsPage(toolBoxWindow);
-	delete toolBoxWindow;
 
-	// Cleanup up the Count Down Timer Window
-	if (racingWindowVisible) {
-		racingWindow->Finish();
+	// Cleanup up the Countdown Timer dialog
+	if (isCountdownTimerVisible) {
+		racingWindow->Close();
 		delete racingWindow;
 	}
 
-
-	// Unwire the handler for the Count Down Timer Window events 
+	// Cleanup the handler for the Countdown Timer dialog events 
 	Disconnect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
 
-	return true;
+	// OpenCPN doesn't care about the return value
+	return bShutdown; 
 }
 
 // UpdateAUI Status is invoked by OpenCPN when the saved AUI perspective is loaded
+// We use this to synch the context menu state when the AUI perspective is initially loaded
 void RacingPlugin::UpdateAuiStatus(void) {
 
-	auiManager->GetPane(_T(PLUGIN_COMMON_NAME)).Show(isWindWizardVisible);
-	auiManager->Update();
-	SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
-
+	if (auiManager->GetPane(PLUGIN_COMMON_NAME).IsOk()) {
+		auiManager->GetPane(PLUGIN_COMMON_NAME).Show(isWindWizardVisible);
+		SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
+	}
 }
 
-// Keep the context menu synchronized with the AUI pane state
-// The context menu is used to toggle the display the "Wind Wizard" gauge
+// Keep the context menu synchronized when the AUI pane is closed
 void RacingPlugin::OnPaneClose(wxAuiManagerEvent& event) {
 
-	wxAuiPaneInfo* paneInfo = event.GetPane();
-	if (paneInfo->name == _T(PLUGIN_COMMON_NAME)) {
+	if (event.GetPane()->name ==  PLUGIN_COMMON_NAME) {
 		isWindWizardVisible = false;
 		// Toggle the context menu item
 		SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
@@ -305,72 +299,86 @@ int RacingPlugin::GetPlugInVersionMinor() {
 	return PLUGIN_VERSION_MINOR;
 }
 
+int RacingPlugin::GetPlugInVersionPatch() {
+	return PLUGIN_VERSION_PATCH;
+}
+
 // Return descriptions for the Plugin
 wxString RacingPlugin::GetCommonName() {
-	return _T(PLUGIN_COMMON_NAME);
+	return PLUGIN_COMMON_NAME;
 }
 
 wxString RacingPlugin::GetShortDescription() {
-	return _T(PLUGIN_SHORT_DESCRIPTION);
+	return PLUGIN_SHORT_DESCRIPTION;
 }
 
 wxString RacingPlugin::GetLongDescription() {
-	return _T(PLUGIN_LONG_DESCRIPTION);
+	return PLUGIN_LONG_DESCRIPTION;
 }
 
 // Most plugins use a 32x32 pixel PNG file converted to xpm by pgn2wx.pl perl script
-// However easier just to use a SVG file as it means we can just use one image format
-// rather than maintaining several (png, bmp, ico)
+// However easier to use a SVG file as it means we can just use one image format
+// rather than maintaining several.
 wxBitmap* RacingPlugin::GetPlugInBitmap() {
 	return &pluginBitmap;
 }
 
-// We only install a singe toolbar item
+// Optional OpenCPN Plugin Methods
+
+// Pre shutdown, New API in 1.19
+void RacingPlugin::PreShutdownHook() {
+	bShutdown = true;
+	if (wxMessageBox("OK to shutdown","Shutdown", wxYES_NO) == wxID_NO) {
+		bShutdown = false;
+	}
+}
+
+// We only install a single toolbar item
 int RacingPlugin::GetToolbarToolCount(void) {
  return 1;
 }
 
+// BUG BUG What happens if a plugin installs multiple toolbar buttons?
 int RacingPlugin::GetToolbarItemId() { 
-	return racingToolbar; 
+	return racingToolbarId; 
 }
 
+// What to perfom when the toolbar button is presssed
 void RacingPlugin::OnToolbarToolCallback(int id) {
-	// Display modal Race Start Window
-	//RacingDialog *racingDialog = new RacingDialog(parentWindow);
-	//racingDialog->ShowModal();
-	//delete racingDialog;
-	//SetToolbarItemState(id, false);
-
-	// Display a non-modal Race Start Window
-	if (!racingWindowVisible) {
-		racingWindow = new RacingWindow(parentWindow, this);
-		racingWindowVisible = true;
-		SetToolbarItemState(id, racingWindowVisible);
-		racingWindow->Show(true);
-	}
-	else {
-		racingWindow->Close();
-		delete racingWindow;
-		SetToolbarItemState(id, racingWindowVisible);
+	if (id == racingToolbarId) {
+		// Display the non-modal Countdown Timer dialog
+		if (!isCountdownTimerVisible) {
+			racingWindow = new RacingWindow(parentWindow, this);
+			isCountdownTimerVisible = true;
+			SetToolbarItemState(id, isCountdownTimerVisible);
+			racingWindow->Show(true);
+		}
+		else {
+			racingWindow->Close();
+			delete racingWindow;
+			isCountdownTimerVisible = false;
+			SetToolbarItemState(id, isCountdownTimerVisible);
+		}
 	}
 }
 
-// What to do when our context menu item is selected
+// What to do when the context menu item is selected
 void RacingPlugin::OnContextMenuItemCallback(int id) {
 
-	if (racingContextMenuId == id) {
+	if (id == racingContextMenuId) {
 		isWindWizardVisible = !isWindWizardVisible;
 		SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
-		auiManager->GetPane(_T(PLUGIN_COMMON_NAME)).Show(isWindWizardVisible);
+		auiManager->GetPane(PLUGIN_COMMON_NAME).Show(isWindWizardVisible);
 		auiManager->Update();
 	}
 }
 
-// Add our own tab on the OpenCPN toolbox, under the "User" settings, requires INSTALLS_TOOLBOX_PAGE
-// Ordinarily plugins would add their own settings dialog launched from the ShowPreferencesDialog method
+// Add our own tab on the OpenCPN toolbox, under the "User" settings. Ordinarily plugins 
+// would add their own settings dialog launched using the ShowPreferencesDialog method
 void RacingPlugin::OnSetupOptions(void) {
+
 	// Get a handle to our options page window, add a sizer to it, to which we will add our toolbox panel
-	toolBoxWindow = AddOptionsPage(OptionsParentPI::PI_OPTIONS_PARENT_UI, _T(PLUGIN_COMMON_NAME));
+	toolBoxWindow = AddOptionsPage(OptionsParentPI::PI_OPTIONS_PARENT_UI, PLUGIN_COMMON_NAME);
 	toolboxSizer = new wxBoxSizer(wxVERTICAL);
 	toolBoxWindow->SetSizer(toolboxSizer);
 	// Create our toolbox panel and add it to the toolbox via the sizer
@@ -378,43 +386,40 @@ void RacingPlugin::OnSetupOptions(void) {
 	toolboxSizer->Add(racingToolbox, 1, wxALL | wxEXPAND);
 }
 
-// I have no idea when this is called, supposedly when the plugin is first added
+// I have no idea when this is called, supposedly when the plugin is initially installed
 // but it seems like it is no longer implemented
 void RacingPlugin::SetupToolboxPanel(int page_sel, wxNotebook* pnotebook) {
-	//....wxMessageBox(wxString::Format(_T("SetupToolboxPanel: %d"), page_sel));
+	wxLogMessage("Racing Plugin, Debug, SetupToolboxPanel invoked: %d", page_sel);
 }
 
 // Invoked when the OpenCPN Toolbox OK, Apply or Cancel buttons are pressed
-// Requires INSTALLS_TOOLBOX_PAGE
 void RacingPlugin::OnCloseToolboxPanel(int page_sel, int ok_apply_cancel) {
-	// Why didn't they use standard enums like wxID_OK ??	
+
+	// BUG BUG Why didn't they use standard enums like wxID_OK ??	
 	if ((ok_apply_cancel == 0) || (ok_apply_cancel == 4)) {
 		// Save the setttings
-		if (configSettings) {
-			configSettings->SetPath(_T("/PlugIns/RacingPlugin"));
-			configSettings->Write(_T("StartLineBias"), showStartline);
-			configSettings->Write(_T("Laylines"), showLayLines);
-			configSettings->Write(_T("DualCanvas"), showMultiCanvas);
-			configSettings->Write(_T("WindAngles"), showWindAngles);
-			configSettings->Write(_T("StartTimer"), defaultTimerValue);
-		}
+		SaveSettings();
 	}
 }
 
 // Display Plugin preferences dialog. 
-// This is probably the preferable way for plugins to configure their settings
+// This is most likely the preferable way for plugins to display UI to configure their settings
 void RacingPlugin::ShowPreferencesDialog(wxWindow* parent) {
-	racingSettings = new RacingSettings(parent);
 
-	// Kind of redundant as the settings are saved during deinit
-	// However this demonstrates the use of plugin preferences
-	// Could use getters & setters, or as I'm lazy, global variables
+	racingSettings = new RacingSettings(parent);
 	if (racingSettings->ShowModal() == wxID_OK) {
-		if (configSettings) {
-			configSettings->SetPath(_T("/PlugIns/RacingPlugin"));
-			configSettings->Write(_T("SendNMEA2000Wind"), generatePGN130306);
-			configSettings->Write(_T("SendNMEA0183Wind"), generateMWVSentence);
-		}
+		SaveSettings();
+	}
+}
+
+// Handle changes to OpenCPN Colour scheme
+void RacingPlugin::SetColorScheme(PI_ColorScheme cs) {
+
+	if ((cs == PI_GLOBAL_COLOR_SCHEME_DUSK) || (cs == PI_GLOBAL_COLOR_SCHEME_NIGHT)) {
+		windWizard->SetNightMode(true);
+	}
+	else {
+		windWizard->SetNightMode(false);
 	}
 }
 
@@ -506,10 +511,10 @@ bool RacingPlugin::RenderOverlayMultiCanvas(wxDC& dc, PlugIn_ViewPort* vp,
 			}
 			return true;
 		}
-		wxLogDebug("Race Plugin, Canvas DC not OK");
+		wxLogDebug("Racing Plugin, Debug, Canvas DC not OK");
 		return false;
 	}
-	wxLogDebug("Race Plugin, OpenCPN not in legacy mode, %d", priority);
+	wxLogDebug("Racing Plugin, Debug, OpenCPN not in legacy mode, %d", priority);
 	return false;
 }
 
@@ -602,9 +607,29 @@ bool RacingPlugin::RenderGLOverlayMultiCanvas(wxGLContext* pcontext, PlugIn_View
 						windArrow[2].y = (sin(radians - 0.088) * abs(boatLocation.y - ringLocation.y)) + boatLocation.y;
 						windArrow[3].x = (cos(radians) * 10) + boatLocation.x;
 						windArrow[3].y = (sin(radians) * 10) + boatLocation.y;
-
-						rc->SetPen(wxPen(wxColor(255, 153, 51), 1, wxPENSTYLE_SOLID));
-						rc->SetBrush(wxColor(255, 153, 51));
+						// Use different colours for different wind speed ranges
+						// orange was 253, 153, 51
+						if (apparentWindSpeed < 10) {
+							rc->SetPen(wxPen(wxColor(255, 255, 155), 1, wxPENSTYLE_SOLID));
+							rc->SetBrush(wxColor(255, 255, 155));
+						}
+						else if ((apparentWindSpeed >= 10) && (apparentWindSpeed < 15)) {
+							rc->SetPen(wxPen(wxColor(0, 255, 0), 1, wxPENSTYLE_SOLID));
+							rc->SetBrush(wxColor(0, 255, 0));
+						}
+						else if ((apparentWindSpeed >= 15) && (apparentWindSpeed < 20)) {
+							rc->SetPen(wxPen(wxColor(0, 255, 255), 1, wxPENSTYLE_SOLID));
+							rc->SetBrush(wxColor(0, 255, 255));
+						}
+						else if ((apparentWindSpeed >= 20) && (apparentWindSpeed < 25)) {
+							rc->SetPen(wxPen(wxColor(0, 0, 255), 1, wxPENSTYLE_SOLID));
+							rc->SetBrush(wxColor(0, 0, 255));
+						}
+						else {
+							rc->SetPen(wxPen(wxColor(255, 155, 128), 1, wxPENSTYLE_SOLID));
+							rc->SetBrush(wxColor(255, 155, 128));
+						}
+						
 						// Trying this just to see what it does...
 						rc->DrawPolygonTessellated(WXSIZEOF(windArrow), windArrow);
 					}
@@ -617,27 +642,30 @@ bool RacingPlugin::RenderGLOverlayMultiCanvas(wxGLContext* pcontext, PlugIn_View
 			return true;
 		}
 		else {
-			wxLogDebug("Race Plugin, Canvas GLContext not OK");
+			wxLogDebug("Racing Plugin, Debug, Canvas GLContext not OK");
 			return false;
 		}
 	}
 	else {
-		wxLogDebug("Race Plugin, OpenCPN not in Emboss Mode, Current Mode: %d", priority);
+		wxLogDebug("Racing Plugin, Debug, OpenCPN not in Emboss Mode, Current Mode: %d", priority);
 		return false;
 	}
 }
 
-
-// When a route or waypoint is active, OpenCPN provides distance, bearing etc. to the waypoint
+// When a route or waypoint is active, OpenCPN provides distance, bearing, waypoint name etc. to the waypoint
+// BUG BUG Broken in API 1.19
 void RacingPlugin::SetActiveLegInfo(Plugin_Active_Leg_Info& pInfo) {
-	// These global variables are also set in the OCPN_WPT... and OCPN_RTE... messages
-	waypointActive = true;
+	
+	wxLogMessage("Racing Plugin, Debug, SetActiveLegInfo: %s", pInfo.wp_name);
 	waypointBearing = pInfo.Btw;
+	// This variable is also set upon reception of OCPN_WPT... and OCPN_RTE... messages
+	isWaypointActive = true;
 }
 
 // Receive Position, Course, Speed and Heading from OpenCPN
 // This has now probably been superceded by NavMsg listener
 void RacingPlugin::SetPositionFixEx(PlugIn_Position_Fix_Ex& pfix) {
+
 	//wxMutexLocker lock(lockPositionFix);
 	currentLatitude = pfix.Lat;
 	currentLongitude = pfix.Lon;
@@ -645,29 +673,17 @@ void RacingPlugin::SetPositionFixEx(PlugIn_Position_Fix_Ex& pfix) {
 	speedOverGround = pfix.Sog;
 	headingTrue = pfix.Hdt;
 	headingMagnetic = pfix.Hdm;
-	wxLogMessage(_T("Pfix: %0.3f, %0.3f %0.2f"), pfix.Lat, pfix.Lon, pfix.Hdt);
 }
 
-// The listeners
-// In this plugin, all speed and distance variables are received from the various data sources and 
-// stored in OpenCPN's default units. They are then converted to the user's chosen display units.
-// Note that NMEA2000 and SignalK use SI units
-// When using fromUserSpeed_Plugin use the following enums found in navutil_base.h
-// enum { DISTANCE_NMI = 0,DISTANCE_MI,DISTANCE_KM,DISTANCE_M,DISTANCE_FT,DISTANCE_FA,DISTANCE_IN,DISTANCE_CM};
-// enum { SPEED_KTS = 0, SPEED_MPH, SPEED_KMH, SPEED_MS };
-// enum { WSPEED_KTS = 0, WSPEED_MS, WSPEED_MPH, WSPEED_KMH };
-// enum { DEPTH_FT = 0, DEPTH_M, DEPTH_FA };
-// enum { TEMPERATURE_C = 0, TEMPERATURE_F = 1, TEMPERATURE_K = 2 };
-// Bearings/headings are in degrees
-
-// The old way of receiving NMEA 0183 sentences
+// The "old way" of receiving NMEA 0183 sentences
 void RacingPlugin::SetNMEASentence(wxString& sentence) {
+
 	NMEA0183 parserNMEA0183;
 	parserNMEA0183 << sentence;
 	// We'll handle a few "older" style NMEA 0183 sentences using this method
 	if (parserNMEA0183.PreParse()) {
 		// $IIVWR,048,L,23.9,N,12.3,M,044.2,K*4F
-		if (parserNMEA0183.LastSentenceIDReceived == _T("VWR")) {
+		if (parserNMEA0183.LastSentenceIDReceived == "VWR") {
 			if (parserNMEA0183.Parse()) {
 				apparentWindSpeed = fromUsrSpeed_Plugin(parserNMEA0183.Vwr.WindSpeedKnots, 0);
 				apparentWindAngle = parserNMEA0183.Vwr.WindDirectionMagnitude;
@@ -677,7 +693,7 @@ void RacingPlugin::SetNMEASentence(wxString& sentence) {
 			}
 		}
 		// $IIDBT,007.8,f,002.3,M,001.3,F*1D
-		if (parserNMEA0183.LastSentenceIDReceived == _T("DBT")) {
+		if (parserNMEA0183.LastSentenceIDReceived == "DBT") {
 			if (parserNMEA0183.Parse()) {
 				// Following depends on PR #4098
 				// waterDepth = fromUsrDepth_Plugin(parserNMEA0183.Dbt.DepthMeters, 1);
@@ -687,26 +703,41 @@ void RacingPlugin::SetNMEASentence(wxString& sentence) {
 	}
 }
 
+// The Observable Listener Handlers
+// In this plugin, all speed and distance variables are received from the various data sources and 
+// stored in OpenCPN's default units. 
+// They are then converted to the user's chosen display units in the "Wind Wizard" and Countdown Timer dialg
+// Note that NMEA2000 and SignalK use SI units.
+
+// When using fromUserSpeed_Plugin use the following enums found in navutil_base.h
+// enum { DISTANCE_NMI = 0,DISTANCE_MI,DISTANCE_KM,DISTANCE_M,DISTANCE_FT,DISTANCE_FA,DISTANCE_IN,DISTANCE_CM};
+// enum { SPEED_KTS = 0, SPEED_MPH, SPEED_KMH, SPEED_MS };
+// enum { WSPEED_KTS = 0, WSPEED_MS, WSPEED_MPH, WSPEED_KMH };
+// enum { DEPTH_FT = 0, DEPTH_M, DEPTH_FA };
+// enum { TEMPERATURE_C = 0, TEMPERATURE_F = 1, TEMPERATURE_K = 2 };
+
+
 // Handler for Navigation Data events 
 void RacingPlugin::HandleNavData(ObservedEvt ev) {
+
 	PluginNavdata navdata = GetEventNavdata(ev);
 	// Save our current position and heading
 	//wxMutexLocker lock(lockPositionFix);
-	//currentLatitude = navdata.lat;
-	//currentLongitude = navdata.lon;
+	currentLatitude = navdata.lat;
+	currentLongitude = navdata.lon;
 	headingTrue = navdata.hdt;
 	headingMagnetic = navdata.hdt - navdata.var;
-	wxLogMessage(_T("NavData: %0.3f, %0.3f %0.2f"), navdata.lat, navdata.lon, navdata.hdt);
 }
 
+// The "new" way of receiving NMEA 0183 sentences
 // Parse NMEA 0183 Wind sentence
 void RacingPlugin::HandleMWV(ObservedEvt ev) {
+
 	NMEA0183Id id_183_mwv("MWV");
 	NMEA0183 parserNMEA0183;
 	wxString sentence = GetN0183Payload(id_183_mwv, ev);
 	parserNMEA0183 << sentence;
 
-	// BUG BUG Really annoying that OpenCPN doesn't expose enums for the units in ocpn_plugin.h
 	if (parserNMEA0183.Parse()) {
 		if (parserNMEA0183.Mwv.WindSpeedUnits == 'N') { //Knots
 			apparentWindSpeed = fromUsrSpeed_Plugin(parserNMEA0183.Mwv.WindSpeed, 0);
@@ -723,6 +754,7 @@ void RacingPlugin::HandleMWV(ObservedEvt ev) {
 
 // Parse NMEA 0183 Depth sentence
 void RacingPlugin::HandleDPT(ObservedEvt ev) {
+
 	NMEA0183Id id_183_dpt("DPT");
 	NMEA0183 parserNMEA0183;
 	wxString sentence = GetN0183Payload(id_183_dpt, ev);
@@ -736,6 +768,7 @@ void RacingPlugin::HandleDPT(ObservedEvt ev) {
 
 // Parse NMEA 0183 Speed through Water sentence
 void RacingPlugin::HandleVHW(ObservedEvt ev) {
+
 	NMEA0183Id id_183_vhw("VHW");
 	NMEA0183 parserNMEA0183;
 	wxString sentence = GetN0183Payload(id_183_vhw, ev);
@@ -749,72 +782,133 @@ void RacingPlugin::HandleVHW(ObservedEvt ev) {
 
 // Parse NMEA 2000 Speed Through Water message
 void RacingPlugin::HandleN2K_128259(ObservedEvt ev) {
+
 	NMEA2000Id id_128259(128259);
 	std::vector<uint8_t> payload = GetN2000Payload(id_128259, ev);
-
 	unsigned char sid;
 	double boatSpeedWaterReferenced;
 	double boatSpeedGroundReferenced;
 	tN2kSpeedWaterReferenceType waterReferenceType; // 0 = Paddlewheel
 
 	if (ParseN2kPGN128259(payload, sid, boatSpeedWaterReferenced, boatSpeedGroundReferenced, waterReferenceType)) {
-		// Convert from m/s
+		// Convert from m/s to OpenCPN's core units
 		boatSpeed = fromUsrSpeed_Plugin(boatSpeedWaterReferenced, 3);
 	}
 }
 
 // Parse NMEA 2000 Water Depth message
 void RacingPlugin::HandleN2K_128267(ObservedEvt ev) {
+
 	NMEA2000Id id_128267(128267);
 	std::vector<uint8_t> payload = GetN2000Payload(id_128267, ev);
-
 	unsigned char sid;
 	double depthBelowTransducer;
 	double transducerOffset;
 	double maxRange;
 
 	if (ParseN2kPGN128267(payload, sid, depthBelowTransducer, transducerOffset, maxRange)) {
-		// Convert from cm, to metres, then to user's units
-		waterDepth = depthBelowTransducer * 100;
+		// Convert from m to OpenCPN's core units
+		// Following depends on PR #4098
+		// waterDepth = fromUsrDepth_Plugin(depthBelowTransducer, 1);
+		waterDepth = depthBelowTransducer;
 	}
 }
 
 // Parse NMEA 2000 Wind message
 void RacingPlugin::HandleN2K_130306(ObservedEvt ev) {
+
 	NMEA2000Id id_130306(130306);
 	std::vector<uint8_t> payload = GetN2000Payload(id_130306, ev);
-
 	unsigned char sid;
 	double windSpeed;
 	double windAngle;
 	tN2kWindReference windReferenceType;
 
 	if (ParseN2kPGN130306(payload, sid, windSpeed, windAngle, windReferenceType)) {
-		// Convert from m/s and radians
+		// Convert from m/s and radians to OpenCPN's core units
 		apparentWindSpeed = fromUsrSpeed_Plugin(windSpeed, 3);
 		apparentWindAngle = windAngle * 180 / M_PI;
 	}
 }
 
-// Parse Signalk. Core OpenCPN has not yet implemented GetSignalKPayload
-// See below for OCPN Messaging
-void RacingPlugin::HandleSignalK(ObservedEvt ev) {
-	//auto payload = GetSignalkPayload(ev);
-	//const auto msg = *std::static_pointer_cast<const wxJSONValue>(payload);
+// Parse OpenCPN Core Messaging
+// BUG BUG New API in 1.19 Not working ??
+void RacingPlugin::HandleMsgData(ObservedEvt ev) {
+
+	PluginMsgId msg_id = PluginMsgId("WMM_VARIATION_BOAT");
+	std::string message = GetPluginMsgPayload(msg_id, ev);
+	isWaypointActive = true;
+	wxLogMessage("Racing Plugin, Debug, Received OCPN Message: %s", message);
 }
 
-// Receive & handle OpenCPN Messaging
-// 
-// As Core OpenCPN does not yet support GetSignalKPayload, obtain SignalK deltas from OCPN messaging
+// Parse Signalk. Core OpenCPN has yet to implement/export the GetSignalKPayload method
+// My private build of OpenCPN has exported the GetSignalKPayload method and it does work
+// Otherwise could also use OCPN Messaging to receive SignalK data
+void RacingPlugin::HandleSignalK(ObservedEvt ev) {
+
+	auto payload = GetSignalkPayload(ev);
+	const auto msg = *std::static_pointer_cast<const wxJSONValue>(payload);
+	// BUG BUG Should we bail out on errors ?
+	auto errorCount = msg.ItemAt("ErrorCount");
+	if (errorCount.AsInt() > 0) {
+		wxLogMessage("Racing Plugin, SignalK Error Count: %d", errorCount.AsInt());
+		// BUG BUG Should we log the error message
+		return;
+	}
+
+	// Retrieve the Self Context and the SignalK Data
+	wxJSONValue self = msg.ItemAt("ContextSelf");
+	wxJSONValue data = msg.ItemAt("Data");
+	
+	// Only interested in displaying data for our own vessel
+	if (data.HasMember("context") && data["context"].IsString()) {
+		wxString context = data["context"].AsString();
+		if (context != self.AsString()) {
+			return;
+		}
+
+		// Parse the data
+		if (data.HasMember("updates") && data["updates"].IsArray()) {
+			wxJSONValue updates = data["updates"];
+			for (int i = 0; i < updates.Size(); ++i) {
+				HandleSKUpdate(updates[i]);
+			}
+		}
+	}
+}
+
+// Receive & handle OpenCPN Messaging, the "Old" mechanism
 void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body) {
+
+	wxLogMessage("Racing Plugin, Debug, Received Message: %s", message_id);
+
 	wxJSONReader jsonReader;
 	wxJSONValue root;
+	// Parse navigation related messages to determine whether to 
+	// display bearing to waypoint etc. 
+	if (message_id == "OCPN_RTE_ACTIVATED") {
+		isWaypointActive = true;
+	}
+	else if (message_id == "OCPN_RTE_DEACTIVATED") {
+		isWaypointActive = false;
+	}
+	else if (message_id == "OCPN_RTE_ENDED") {
+		isWaypointActive = false;
+	}
+	else if (message_id == "OCPN_WPT_ACTIVATED") {
+		isWaypointActive = true;
+	}
+	else if (message_id == "OCPN_WPT_DEACTIVATED") {
+		isWaypointActive = false;
+	}
+	else if (message_id == "OCPN_WPT_ARRIVED") {
+		isWaypointActive = false;
+	}
 
-	// Process SignalK messages
-	if (message_id == _T("OCPN_CORE_SIGNALK")) {
-		wxString self;
+	// Process SignalK messages, the "Old" way to receive SignalK data
+	else if (message_id == "OCPN_CORE_SIGNALK") {
 		if (jsonReader.Parse(message_body, &root) > 0) {
-			wxLogMessage("Race Plugin, JSON Error in following");
+			wxLogMessage("Racing Plugin, JSON Error in following");
 			wxLogMessage("%s", message_body);
 			wxArrayString jsonErrors = jsonReader.GetErrors();
 			for (auto it : jsonErrors) {
@@ -823,16 +917,20 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 			return;
 		}
 
+		// Upon initial connection, SignalK identifies the vessels for which it stores information
+		// It identifies "self" with a unique id. We only want to receive updates for the "self" context
+		// "self":"urn:mrn:signalk:uuid:1cb1a66a-814c-4478-8b84-701eec9524bb" which then is used to match
+		// "context":"vessels.urn:mrn:signalk:uuid:1cb1a66a-814c-4478-8b84-701eec9524bb"
 		if (root.HasMember("self")) {
-			if (root["self"].AsString().StartsWith(_T("vessels.")))
-				self = (root["self"].AsString());  // for Java server, and OpenPlotter node.js server 1.20
+			if (root["self"].AsString().StartsWith("vessels."))
+				selfURN = (root["self"].AsString());  // for Java server, and OpenPlotter node.js server 1.20
 			else
-				self = _T("vessels.") + (root["self"].AsString()); // for Node.js server
+				selfURN = "vessels." + (root["self"].AsString()); // for Node.js server
 		}
 
 		if (root.HasMember("context") && root["context"].IsString()) {
 			auto context = root["context"].AsString();
-			if (context != self) {
+			if (context != selfURN) {
 				return;
 			}
 		}
@@ -844,28 +942,9 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 			}
 		}
 	}
-	// Parse navigation related messages to control whether to display laylines, bearing to waypoint etc.
-	else if (message_id == _T("OCPN_RTE_ACTIVATED")) {
-		waypointActive = true;
-	}
-	else if (message_id == _T("OCPN_RTE_DEACTIVATED")) {
-		waypointActive = false;
-	}
-	else if (message_id == _T("OCPN_RTE_ENDED")) {
-		waypointActive = false;
-	}
-	else if (message_id == _T("OCPN_WPT_ACTIVATED")) {
-		waypointActive = true;
-	}
-	else if (message_id == _T("OCPN_WPT_DEACTIVATED")) {
-		waypointActive = false;
-	}
-	else if (message_id == _T("OCPN_WPT_ARRIVED")) {
-		waypointActive = false;
-	}
 }
 
-// Process SignalK updates
+// Parse SignalK updates
 void RacingPlugin::HandleSKUpdate(wxJSONValue& update) {
 	if (update.HasMember("values") && update["values"].IsArray()) {
 		for (int j = 0; j < update["values"].Size(); ++j) {
@@ -876,24 +955,27 @@ void RacingPlugin::HandleSKUpdate(wxJSONValue& update) {
 }
 
 // Extract the SignalK values for apparent wind and boat speed
-// Note SignalK uses SI units and radians
-// BUG BUG Check scaling factor
+// SignalK uses SI units and radians
 void RacingPlugin::HandleSKItem(wxJSONValue& item) {
 	if (item.HasMember("path") && item.HasMember("value")) {
 		const wxString& update_path = item["path"].AsString();
 		wxJSONValue& value = item["value"];
 
 		if (update_path.StartsWith("environment")) {
-			if (update_path == _T("environment.wind.angleApparent")) {
+			if (update_path == "environment.wind.angleApparent") {
+				// SignalK uses +/- Pi, convert to 0 - 360
 				apparentWindAngle = value.AsDouble() * 180 / M_PI;
+				if (apparentWindAngle < 0) {
+					apparentWindAngle += 360.0f;
+				}
 			}
-			if (update_path == _T("environment.wind.speedApparent")) {
+			if (update_path == "environment.wind.speedApparent") {
 				apparentWindSpeed = fromUsrSpeed_Plugin(value.AsDouble(), 3);
 			}
-			if (update_path == _T("environment.depth.belowTransducer")) {
+			if (update_path == "environment.depth.belowTransducer") {
 				// Following depends on PR #4098
-				// waterDepth = fromUsrDepth_Plugin(100 * value.AsDouble(), 1);
-				waterDepth = 100 * value.AsDouble();
+				// waterDepth = fromUsrDepth_Plugin(value.AsDouble(), 1);
+				waterDepth = value.AsDouble();
 			}
 		}
 		else if (update_path.StartsWith("navigation")) {
@@ -904,27 +986,28 @@ void RacingPlugin::HandleSKItem(wxJSONValue& item) {
 	}
 }
 
-// Generate True Wind NMEA 0183 Sentence
+// Generate NMEA 0183 MWV sentence with True Wind
 void RacingPlugin::GenerateTrueWindSentence(void) {
+
 	wxString sentence;
 	// Generate the MWV sentence
 	sentence = wxString::Format("$IIMWV,%.2f,T,%.2f,N,A", trueWindAngle, trueWindSpeed);
 	// Append the checksum
 	wxString checksum = ComputeChecksum(sentence);
-	sentence.Append(wxT("*"));
+	sentence.Append("*");
 	sentence.Append(checksum);
-	sentence.Append(wxT("\r\n"));
+	sentence.Append("\r\n");
 	// Send it to OpenCPN
 	PushNMEABuffer(sentence);
-	// Alternatively could have used the WriteCommDriver.
-	// But need to check if it is received by other plugins
+	// Alternatively could have used WriteCommDriver.
 }
 
-// Generate True Wind NMEA 2000 PGN 130306 message
+// Generate NMEA 2000 PGN 130306 message with True Wind
 void RacingPlugin::GenerateTrueWindMessage(void) {
+
 	tN2kMsg N2kMsg;
 	// Only Transmit if we have a valid NMEA 2000 connection
-	if (n2kNetworkHandle != wxEmptyString) {
+	if (!n2kNetworkHandle.empty()) {
 		SetN2kWindSpeed(N2kMsg, 1, trueWindSpeed, trueWindAngle, tN2kWindReference::N2kWind_True_boat);
 		std::vector<uint8_t> payload(N2kMsg.Data, N2kMsg.Data + N2kMsg.GetAvailableDataLength());
 		auto sharedPointer = std::make_shared<std::vector<uint8_t>>(payload);
@@ -934,40 +1017,45 @@ void RacingPlugin::GenerateTrueWindMessage(void) {
 
 // Generate the NMEA 0183 XOR checksum to be appended to an NMEA 0183 sentence
 wxString RacingPlugin::ComputeChecksum(wxString sentence) {
+
 	unsigned char calculatedChecksum = 0;
 	for (wxString::const_iterator it = sentence.begin() + 1; it != sentence.end(); ++it) {
 		calculatedChecksum ^= static_cast<unsigned char> (*it);
 	}
-	return(wxString::Format(wxT("%02X"), calculatedChecksum));
+	return(wxString::Format("%02X", calculatedChecksum));
 }
+
 // Update the "Wind Wizard" every second and generate True Wind messages/sentences
 // BUG BUG This is where a pub/sub model would be interesting....
-void RacingPlugin::OnTimerElapsed(wxEvent& ev) {
+void RacingPlugin::OnTimerElapsed(wxTimerEvent& ev) {
+
 	if (oneSecondTimer->IsRunning()) {
 		CalculateTrueWind();
-		//CalculateDrift();
+		CalculateDrift();
+		if (windWizard != nullptr) {
+			windWizard->SetTrueWindAngle(trueWindAngle);
+			windWizard->SetTrueWindSpeed(trueWindSpeed);
+			windWizard->SetApparentWindAngle(apparentWindAngle);
+			windWizard->SetApparentWindSpeed(apparentWindSpeed);
+			windWizard->SetBoatSpeed(boatSpeed);
+			windWizard->SetWaterDepth(waterDepth);
+			windWizard->SetMagneticHeading(headingMagnetic);
+			windWizard->SetTrueHeading(headingTrue);
+			windWizard->SetCOG(courseOverGround);
+			windWizard->SetSOG(speedOverGround);
+			// BUG BUG Ideological question; VMG or CMG
+			windWizard->SetVMG(boatSpeed * cos(trueWindAngle));
+			// course made good = boatSpeed * cos(headingTrue - headingMagnetic); 
+			windWizard->SetDriftAngle(driftAngle);
+			windWizard->SetDriftSpeed(driftSpeed);
+			windWizard->ShowBearing(isWaypointActive);
+			if (isWaypointActive) {
+				windWizard->SetBearing(waypointBearing);
+			}
 
-		windWizard->SetTrueWindAngle(trueWindAngle);
-		windWizard->SetTrueWindSpeed(trueWindSpeed);
-		windWizard->SetApparentWindAngle(apparentWindAngle);
-		windWizard->SetApparentWindSpeed(apparentWindSpeed);
-		windWizard->SetBoatSpeed(boatSpeed);
-		windWizard->SetWaterDepth(waterDepth);
-		windWizard->SetMagneticHeading(headingMagnetic);
-		windWizard->SetTrueHeading(headingTrue);
-		windWizard->SetCOG(courseOverGround);
-		windWizard->SetSOG(speedOverGround);
-		windWizard->SetVMG(boatSpeed * cos(trueWindAngle));
-		// course made good = boatSpeed * cos(headingTrue - headingMagnetic); 
-		windWizard->SetDriftAngle(driftAngle);
-		windWizard->SetDriftSpeed(driftSpeed);
-		windWizard->ShowBearing(waypointActive);
-		if (waypointActive) {
-			windWizard->SetBearing(waypointBearing);
+			// Update the Gauge
+			windWizard->Refresh();
 		}
-
-		// Update the Gauge
-		windWizard->Refresh();
 
 		// Generate NMEA 0183 and NMEA 2000 True Wind Messages
 		if (generateMWVSentence) {
@@ -982,7 +1070,9 @@ void RacingPlugin::OnTimerElapsed(wxEvent& ev) {
 }
 
 // Perhaps of use to the folks investigating the use of a marine radar to track weather
+// May have been of use for https://www.cruisersforum.com/forums/f134/two-things-288437.html
 void RacingPlugin::CreateScreenShot() {
+
 	wxClientDC clientDC(GetOCPNCanvasWindow());
 
 	wxCoord screenWidth, screenHeight;
@@ -1004,11 +1094,50 @@ void RacingPlugin::CreateScreenShot() {
 	bitMap.SaveFile(GetWritableDocumentsDir() + wxFileName::GetPathSeparators() + "screenshot.jpg", wxBITMAP_TYPE_JPEG);
 }
 
-// Handle events from the Race Start Dialog
+void RacingPlugin::LoadSettings(void) {
 
+	wxFileConfig* configSettings = GetOCPNConfigObject();
+
+	if (configSettings) {
+		configSettings->SetPath("/PlugIns/RacingPlugin");
+		configSettings->Read("StartLineBias", &showStartline, false);
+		configSettings->Read("Laylines", &showLayLines, false);
+		configSettings->Read("WindAngles", &showWindAngles, false);
+		configSettings->Read("DualCanvas", &showMultiCanvas, false);
+		configSettings->Read("StartTimer", &defaultTimerValue, 300);
+		configSettings->Read("Visible", &isWindWizardVisible, false);
+		configSettings->Read("SendNMEA2000Wind", &generatePGN130306, false);
+		configSettings->Read("SendNMEA0183Wind", &generateMWVSentence, false);
+		// Get the length of OpenCPN's Ship's Heading Predictor Length
+		// It is used for determining the length of the apparent wind arrow on the canvas
+		configSettings->SetPath("Settings");
+		configSettings->Read("OwnshipHDTPredictorMiles", &headingPredictorLength, 1);
+	}
+}
+
+void RacingPlugin::SaveSettings(void) {
+
+	wxFileConfig* configSettings = GetOCPNConfigObject();
+
+	if (configSettings) {
+		configSettings->SetPath("/PlugIns/RacingPlugin");
+		configSettings->Write("StartLineBias", showStartline);
+		configSettings->Write("Laylines", showLayLines);
+		configSettings->Write("DualCanvas", showMultiCanvas);
+		configSettings->Write("WindAngles", showWindAngles);
+		configSettings->Write("StartTimer", defaultTimerValue);
+		configSettings->Write("Visible", isWindWizardVisible);
+		configSettings->Write("SendNMEA2000Wind", generatePGN130306);
+		configSettings->Write("SendNMEA0183Wind", generateMWVSentence);
+	}
+}
+
+// Handle events from the Countdown Timer dialog
 void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
+
 	switch (event.GetId()) {
-		// Keep the toolbar & canvas in sync with the display of the race start dialog
+
+	// Keep the toolbar & canvas in sync with the display of the Countdown Timer dialog
 	case RACE_DIALOG_CLOSED:
 		if (!starboardMarkGuid.IsEmpty()) {
 			DeleteSingleWaypoint(starboardMarkGuid);
@@ -1016,14 +1145,18 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
 		if (!portMarkGuid.IsEmpty()) {
 			DeleteSingleWaypoint(portMarkGuid);
 		}
-		SetToolbarItemState(racingToolbar, racingWindowVisible);
+
+		isCountdownTimerVisible = false;
+		SetToolbarItemState(racingToolbarId, isCountdownTimerVisible);
 		break;
-		// drop temporary waypoints to represent port & starboard ends of the start line
+
+		// Drop temporary waypoints to represent port & starboard ends of the start line
+		// Waypoint icons are found in \uidata\markicons
 	case RACE_DIALOG_STBD: {
 		PlugIn_Waypoint waypoint;
 		waypoint.m_IsVisible = true;
-		waypoint.m_MarkName = _T("Starboard");
-		waypoint.m_IconName = _T("Marks-Race-Committee-Start-Boat");
+		waypoint.m_MarkName = "Starboard";
+		waypoint.m_IconName = "Marks-Race-Committee-Start-Boat";
 		starboardMarkGuid = GetNewGUID();
 		waypoint.m_GUID = starboardMarkGuid;
 		waypoint.m_lat = currentLatitude; 
@@ -1036,8 +1169,8 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
 	case RACE_DIALOG_PORT: {
 		PlugIn_Waypoint waypoint;
 		waypoint.m_IsVisible = true;
-		waypoint.m_MarkName = _T("Port");
-		waypoint.m_IconName = _T("Marks-Race-Start");
+		waypoint.m_MarkName = "Port";
+		waypoint.m_IconName = "Marks-Race-Start";
 		portMarkGuid = GetNewGUID();
 		waypoint.m_GUID = portMarkGuid;
 		waypoint.m_lat = currentLatitude;
@@ -1052,43 +1185,43 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
 	}
 }
 
-wxString RacingPlugin::GetNetworkInterface(wxString selectedProtocol) {
-	// Retrieves the first interface for the selected protocol
-	// BUG BUG Ignores multiple interfaces. It should also check if interface is an "output" interface
-	// Available protocols include "nmea2000", "SignalK", "nmea0183"
-	// Note that writing to SignalK is unsupported
+// Retrieves the first interface for the selected protocol
+// BUG BUG Ignores multiple interfaces. 
+// For NMEA 0183 it should also check if interface is an "output" interface
+// Available protocols include "nmea2000", "SignalK", "nmea0183"
+// Note that writing to SignalK is unsupported
+DriverHandle RacingPlugin::GetNetworkInterface(std::string selectedProtocol) {
+	
 	std::vector<DriverHandle> activeDrivers;
 	activeDrivers = GetActiveDrivers();
 	for (auto const& activeDriver : activeDrivers) {
-		wxLogMessage(_T("Race Plugin, Interface: %s"), activeDriver);
+		wxLogMessage("Racing Plugin, Interface: %s", activeDriver);
 		for (auto const& driver : GetAttributes(activeDriver)) {
 			if (driver.first == "protocol") {
-				wxLogMessage(_T("Race Plugin, Type: %s, Protocol: %s"),
-					driver.first, driver.second);
+				wxLogDebug("Racing Plugin, Network, Type: %s, Protocol: %s", driver.first, driver.second);
 			}
 			if (driver.first == "netAddress") {
-				wxLogMessage(_T("Race Plugin, Type: %s, IP Address: %s"),
-					driver.first, driver.second);
+				wxLogDebug("Racing Plugin, Network, Type: %s, IP Address: %s", driver.first, driver.second);
 			}
 			if (driver.first == "netPort") {
-				wxLogMessage(_T("Race Plugin, Type: %s, Port: %s"),
-					driver.first, driver.second);
+				wxLogDebug("Racing Plugin, Network, Type: %s, Port: %s", driver.first, driver.second);
 			}
 			if (driver.first == "commPort") {
-				wxLogMessage(_T("Race Plugin, Type: %s, Comm Port: %s"),
-					driver.first, driver.second);
+				wxLogDebug("Racing Plugin, Network, Type: %s, Comm Port: %s", driver.first, driver.second);
 			}
 			if (driver.second == selectedProtocol) {
-				wxLogMessage(_T("Race Plugin, Protocol %s using %s"), selectedProtocol, activeDriver);
+				wxLogMessage("Racing Plugin, Network Protocol %s using %s", selectedProtocol, activeDriver);
 				return activeDriver;
 			}
 		}
 	}
-	return wxEmptyString;
+	wxLogMessage("Racing Plugin, No Networks supporting %s were found", selectedProtocol);
+	return {}; // An empty std::string
 }
 
 // Adopted from Dashboard Tactics
 void RacingPlugin::CalculateTrueWind() {
+
 	if (apparentWindAngle < 180.0f) {
 		trueWindAngle = 90.0f - (180.0f / M_PI * atan((apparentWindSpeed * cos(apparentWindAngle * M_PI /  180.0f) - boatSpeed) / (apparentWindSpeed * sin(apparentWindAngle * M_PI /  180.0f))));
 	}
@@ -1115,7 +1248,7 @@ void RacingPlugin::CalculateTrueWindV2() {
 void RacingPlugin::CalculateDrift() {
 	// The diffference between COG, SOG and STW and HDG
 	// Two ways of calculating, one using difference between projected positions from STW/HDG and COG/SOG
-	// the other using vector addition
+	// the other using law of cosines
 
 	// https://sailing-blog.nauticed.org/coastal-navigation-the-math-behind-it/
 
@@ -1136,6 +1269,6 @@ void RacingPlugin::CalculateDrift() {
 	DistanceBearingMercator_Plugin(headingLatitude, headingLongitude, gpsLatitude,
 		gpsLongitude, &driftAngle, &driftSpeed);
 
-	wxLogMessage(_T("Racing Plugin, Drift: Angle %0.02f, Speed: %0,02f"), driftAngle, driftSpeed);
+	//wxLogMessage("Racing Plugin, Drift: Angle %0.02f, Speed: %0.02f", driftAngle, driftSpeed);
 
 }

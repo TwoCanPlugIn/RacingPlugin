@@ -26,10 +26,10 @@
 // For the Stopwatch/Countdown timer
 #include <wx/timer.h>
 
-// BUG BUG DEBUG - Logging
-#include <wx/log.h>
-
 #include <algorithm>
+
+// For OpenCPN User's display units
+#include <ocpn_plugin.h>
 
 // image for dialog icon
 extern wxBitmap pluginBitmap;
@@ -49,9 +49,6 @@ extern double speedOverGround;
 // Countdown Timer Value
 extern int defaultTimerValue;
 
-// If the Countdown Timer is visible 
-extern bool racingWindowVisible;
-
 class RacingWindow : public RacingWindowBase {
 	
 public:
@@ -66,7 +63,7 @@ public:
 	wxEvtHandler *eventHandlerAddress;
 
 	// Cleanup
-	void Finish();
+	void Close();
 
 	
 protected:
@@ -81,10 +78,8 @@ protected:
 private:
 	void Initialize(void);
 	void ResetTimer(void);
-	// Race start countdown timer
+	// Countdown timer
 	int totalSeconds;
-	int seconds;
-	int minutes;
 	// Port and Starboard ends of the start line
 	double starboardLatitude;
 	double starboardLongitude;
@@ -98,7 +93,7 @@ private:
 	// Where we are projected to cross the start line.
 	double intersectLatitude;
 	double intersectLongitude;
-	// Distance & Bearing functions
+	// Navigation Formula functions
 	bool CalculateIntersection(double latitude1, double longitude1, double  bearing1, double latitude2, double longitude2, double bearing2, double *lat3, double *lon3);
 	double BearingBetweenPoints(double latitude1, double longitude1, double latitude2, double longitude2);
 	double HaversineFormula(double latutude1, double longitude1, double latitude2, double longitude2);

@@ -1,4 +1,4 @@
-﻿// Copyright(C) 2018-2020 by Steven Adler
+﻿// Copyright(C) 2018-2024 by Steven Adler
 //
 // This file is part of Racing plugin for OpenCPN.
 //
@@ -30,7 +30,7 @@
 // Constructor and destructor implementation
 RacingWindow::RacingWindow( wxWindow* parent, wxEvtHandler *handler) : RacingWindowBase(parent) {
 	
-	// Set the dialog's icon
+	// Initialize the dialog's icon
 	wxIcon icon;
 	icon.CopyFromBitmap(pluginBitmap);
 	RacingWindow::SetIcon(icon);
@@ -47,6 +47,7 @@ RacingWindow::~RacingWindow() {
 }
 
 void RacingWindow::Initialize(void) {
+
 	// Set larger and more readable fonts
 	wxFont bigFont = labelSpeed->GetFont();
 	bigFont.SetPointSize( 20 );
@@ -71,68 +72,63 @@ void RacingWindow::Initialize(void) {
 	ResetTimer();
 
 	// Initialize state of whether we have pinged the port & starboard ends of the start line
-	portMark = FALSE;
-	starboardMark = FALSE;
+	portMark = false;
+	starboardMark = false;
 }
 
 void RacingWindow::OnClose(wxCloseEvent& event) {
-	Finish();
 
-	// Notify the parent we have closed, so that it can update the toolbar state
-	racingWindowVisible = false;
-
+	Close();
+	// Notify the plugin that the Countdown Timer is closed
 	wxCommandEvent *closeEvent = new wxCommandEvent(wxEVT_RACE_DIALOG_EVENT, RACE_DIALOG_CLOSED);
 	wxQueueEvent(eventHandlerAddress, closeEvent);
-
 	event.Skip();
 }
 
 // Cleanup
-void RacingWindow::Finish() {
+void RacingWindow::Close() {
 
 	if (stopWatch != nullptr) {
-
 		if (stopWatch->IsRunning()) {
 			stopWatch->Stop();
 		}
-
 		stopWatch->Disconnect(stopWatch->GetId(), wxEVT_TIMER, wxTimerEventHandler(RacingWindow::OnTimer));
-
 		delete stopWatch;
 	}
-
 }
 
-
-
 void RacingWindow::OnTimer(wxTimerEvent& event) {
-	// Update the countdown timer
-	totalSeconds -= 1;
-	
-	minutes = trunc(totalSeconds / 60);
-	seconds = totalSeconds - (minutes * 60);
-	
-	// Display the count down timer
-	labelTimer->SetLabel(wxString::Format("%1d:%02d",minutes, seconds));
 
-	// Display our current speed
-	// BUG BUG irrespective of the unit preferences knots, metres per second etc. OpenCPN always sends knots
-	labelSpeed->SetLabel(wxString::Format("%02.2f Kts",speedOverGround));
+	// Display the stopwatch
+	totalSeconds -= 1;
+	int minutes = trunc(totalSeconds / 60);
+	int seconds = totalSeconds - (minutes * 60);
+	if (totalSeconds < 0) {
+		labelTimer->SetLabel(wxString::Format("-%1d:%02d", abs(minutes), abs(seconds)));
+	}
+	else {
+		labelTimer->SetLabel(wxString::Format("%1d:%02d", minutes, seconds));
+	}
+
+	// Display our current speed in the user's units
+	labelSpeed->SetLabel(wxString::Format("%02.2f %s",toUsrSpeed_Plugin(speedOverGround), 
+		getUsrSpeedUnit_Plugin()));
 	
 	// If we've pinged each end of the start line
 	if ((portMark) && (starboardMark)) {
-			
+		double distance;
 		// Determine if our current course crosses the start line
 		if (CalculateIntersection(starboardLatitude, starboardLongitude, startLineBearing, currentLatitude, currentLongitude, courseOverGround, &intersectLatitude, &intersectLongitude)) {
 			
 			if (IsWithinBoundingBox(intersectLatitude, intersectLongitude)) {
 				// Calculate distance from our current position to where we intersect with the start line
-				double distance = HaversineFormula(currentLatitude, currentLongitude, intersectLatitude, intersectLongitude);
-				// BUG BUG currently only displays but perhaps should honour OpenCPN units ?
-				labelDistance->SetLabel(wxString::Format("%5.2f m",distance * 1852));
+				distance = HaversineFormula(currentLatitude, currentLongitude, intersectLatitude, intersectLongitude);
 				// Calculate how long to cross the start line, given our current speed.
 				if (wxFinite(distance / speedOverGround) != 0) {
-					labelTTG->SetLabel(wxString::Format("%5.2f s", (distance / speedOverGround) * 60));
+					double ttg = distance / speedOverGround;
+					minutes = floor(ttg * 60);
+					seconds = ((ttg * 60) - minutes) * 60;
+					labelTTG->SetLabel(wxString::Format("%d:%02d", minutes, seconds));
 				}
 				else {
 					// Not crossing start line at current speed
@@ -143,19 +139,18 @@ void RacingWindow::OnTimer(wxTimerEvent& event) {
 				 // Not crosing start line between port & starboard marks
 				labelTTG->SetLabel("---");
 				// Calculate distance from our current position to starborad mark
-				double distance = HaversineFormula(currentLatitude, currentLongitude, starboardLatitude, starboardLongitude);
-				// display in metres
-				labelDistance->SetLabel(wxString::Format("%5.2f m",distance * 1852));
+				distance = HaversineFormula(currentLatitude, currentLongitude, starboardLatitude, starboardLongitude);
 			}
 		}
 		else {
 			// Current course does not cross start line 
 			labelTTG->SetLabel("xxx");
 			// Calculate distance from our current position to starborad mark
-			double distance = HaversineFormula(currentLatitude, currentLongitude, starboardLatitude, starboardLongitude);
-			// display in metres
-			labelDistance->SetLabel(wxString::Format("%5.2f m",distance * 1852));
+			distance = HaversineFormula(currentLatitude, currentLongitude, starboardLatitude, starboardLongitude);
 		}
+		// Display distance in user's units
+		labelDistance->SetLabel(wxString::Format("%5.2f %s", toUsrDistance_Plugin(distance),
+			getUsrDistanceUnit_Plugin()));
 	}
 	else {
 		// Have yet to ping each end of the start line
@@ -165,6 +160,7 @@ void RacingWindow::OnTimer(wxTimerEvent& event) {
 }
 
 void RacingWindow::OnReset(wxCommandEvent &event) {
+
 	if (stopWatch->IsRunning()) {
 		stopWatch->Stop();
 	}
@@ -172,11 +168,13 @@ void RacingWindow::OnReset(wxCommandEvent &event) {
 }
 
 void RacingWindow::OnStart(wxCommandEvent &event) {
+
 	totalSeconds = defaultTimerValue;
 	stopWatch->Start(1000, wxTIMER_CONTINUOUS);
 } 
 
 void RacingWindow::OnStarboard(wxCommandEvent &event) {
+
 	// Save the position for the Starboard Mark
 	starboardLatitude = currentLatitude;
 	starboardLongitude = currentLongitude;
@@ -192,6 +190,7 @@ void RacingWindow::OnStarboard(wxCommandEvent &event) {
 }
 
 void RacingWindow::OnPort(wxCommandEvent &event) {
+
 	// Save the position for the Port Mark
 	portLatitude = currentLatitude;
 	portLongitude = currentLongitude;
@@ -211,16 +210,22 @@ void RacingWindow::OnCancel(wxCommandEvent &event) {
 }
 
 void RacingWindow::ResetTimer(void) {
-	// Reset the countdown timer
+
 	totalSeconds = defaultTimerValue;
-	minutes = trunc(totalSeconds / 60);
-	seconds = totalSeconds - (minutes * 60);
+	int minutes = trunc(totalSeconds / 60);
+	int seconds = totalSeconds - (minutes * 60);
 	labelTimer->SetLabel(wxString::Format("%1d:%02d",minutes, seconds));
+	labelSpeed->SetLabel("STW");
+	labelDistance->SetLabel("DTD");
+	labelTTG->SetLabel("ETA");
 }
 
+// Navigation Formulas
+// Note could also use some of OpenCPN's navigation methods
 
+// Returns the point of intersection of two paths defined by point and bearing.
 bool RacingWindow::CalculateIntersection(double latitude1, double longitude1, double  bearing1, double latitude2, double longitude2, double bearing2, double *latitude3, double *longitude3) {
- // Returns the point of intersection of two paths defined by point and bearing.
+ 
  //
  // @param   {LatLon}      p1 - First point.
  // @param   {number}      brng1 - Initial bearing from first point.
@@ -233,7 +238,7 @@ bool RacingWindow::CalculateIntersection(double latitude1, double longitude1, do
  // const p2 = new LatLon(49.0034, 2.5735), brng2 =  32.435;
  // const pInt = LatLon.intersection(p1, brng1, p2, brng2); // 50.9078°N, 004.5084°E
 
- // see www.edwilliams.org/avform.htm#Intersection
+ // Refer to http://www.edwilliams.org/avform.htm#Intersection
 
 	double lat1 = latitude1 * M_PI / 180;
 	double lon1 = longitude1 * M_PI / 180;
@@ -248,7 +253,7 @@ bool RacingWindow::CalculateIntersection(double latitude1, double longitude1, do
 	double angularDistance = 2 * asin(sqrt(sin(deltaLat / 2) * sin(deltaLat / 2) + cos(lat1) * cos(lat2) * sin(deltaLon / 2) * sin(deltaLon / 2)));
 
 	if (abs(angularDistance) < std::numeric_limits<double>::epsilon()) {
-		return FALSE;//new LatLonSpherical(p1.lat, p1.lon); // coincident points
+		return false; // coincident points
 	}
 
 	// initial/final bearings between points
@@ -265,29 +270,24 @@ bool RacingWindow::CalculateIntersection(double latitude1, double longitude1, do
 	double angleB = bearingB - b2; // angle 1-2-3
 
 	if ((sin(angleA) == 0) && (sin(angleB) == 0)) {
-		return FALSE; // infinite intersections
+		return false; // infinite intersections
 	}
 
 	if ((sin(angleA) * sin(angleB) < 0)) {
-		return FALSE; // ambiguous intersection (antipodal?)
+		return false; // ambiguous intersection (antipodal?)
 	}
 
 	double coslat3 = -cos(angleA)*cos(angleB) + sin(angleA)*sin(angleB)*cos(angularDistance);
-
 	double tanlat3 = atan2(sin(angularDistance)*sin(angleA)*sin(angleB), cos(angleB) + cos(angleA)*coslat3);
-
 	double lat3 = asin(sin(lat1)*cos(tanlat3) + cos(lat1)*sin(tanlat3)*cos(b1));
-
 	double deltaLon3 = atan2(sin(b1)*sin(tanlat3)*cos(lat1), cos(tanlat3) - sin(lat1)*sin(lat3));
 	double lon3 = lon1 + deltaLon3;
 
 	*latitude3 = lat3 * 180 / M_PI;
 	*longitude3 = lon3 * 180 / M_PI;
 
-	return TRUE;
-
+	return true;
 }
-	
 
 	
 	// BUG BUG UNUSED
@@ -315,9 +315,10 @@ bool RacingWindow::CalculateIntersection(double latitude1, double longitude1, do
 		//return fmod(atan2(sin((lon1 * M_PI / 180 )- (lon2 * M_PI / 180))*cos((lat2 * M_PI / 180)), cos((lat1* M_PI / 180))*sin((lat2* M_PI / 180)) - sin((lat1* M_PI / 180))*cos((lat2* M_PI / 180))*cos((lon1* M_PI / 180) - (lon2* M_PI / 180))), (2 * M_PI));
 	}
 
-// Determine distamce between two points using the Haversine Formula
-// Good reference http://www.movable-type.co.uk/scripts/latlong.html
+// Determine distance between two points using the Haversine Formula
+// Refer to http://www.movable-type.co.uk/scripts/latlong.html
 double RacingWindow::HaversineFormula(double latutude1, double longitude1, double latitude2, double longitude2) {
+	
 	const double EARTHRADIUS = 3440;  //6371 Km, 3440 Nm
 	double deltaLatitude = (latutude1 - latitude2) * M_PI / 180;
 	double deltaLongitude = (longitude1 - longitude2) * M_PI / 180;
@@ -328,12 +329,14 @@ double RacingWindow::HaversineFormula(double latutude1, double longitude1, doubl
 
 // Another formula to determine distance between two points
 double RacingWindow::SphericalCosines(double latitude1, double longitude1, double latitude2, double longitude2) {
+	
 	const double EARTHRADIUS = 3440;
 	return acos(sin(latitude1 * M_PI / 180) * sin(latitude2 * M_PI / 180) + cos(latitude1 * M_PI / 180) * cos(latitude2 * M_PI / 180) * cos((longitude2 - longitude1) * M_PI / 180)) * EARTHRADIUS;
 }
 
 // Determine the bearing between two points.
 double	RacingWindow::Bearing(double latitude1, double longitude1, double latitude2, double longitude2) {
+	
 	double deltaLongitude = (longitude2 - longitude1) * M_PI / 180;
 	double y = sin(deltaLongitude) * cos(latitude2 * M_PI / 180);
 	double x = cos(latitude1 * M_PI / 180) * sin(latitude2 * M_PI / 180) - sin(latitude1 * M_PI / 180) * cos(latitude2 * M_PI / 180) * cos(deltaLongitude);
@@ -343,70 +346,12 @@ double	RacingWindow::Bearing(double latitude1, double longitude1, double latitud
 
 // When we have an intersection with the start line, calculated as a point & bearing, determine if the interstection is actually within the port & starboard marks
 bool RacingWindow::IsWithinBoundingBox(double latitude, double longitude) {
+	
 	double startLineLength = HaversineFormula(portLatitude, portLongitude, starboardLatitude, starboardLongitude);
 	if ((HaversineFormula(portLatitude, portLongitude, latitude, longitude) <= startLineLength) && (HaversineFormula(starboardLatitude, starboardLongitude, latitude, longitude) <= startLineLength)) {
-		return TRUE;
+		return true;
 	}
 	else {
-		return FALSE;
+		return false;
 	}
 }
-
-// Some Test Data which appear to test correctly
-	
-	/*
-	double result;
-
-	result = Bearing(41.22000, 2.00000,41.22206,2.00250);
-	wxMessageBox(wxString::Format(" A to B: %f", result));
-
-	result = HaversineFormula(41.22000, 2.00000, 41.22206, 2.00250);
-	wxMessageBox(wxString::Format("A To B: %f Nm, %f metres", result, result * 1852));
-
-	result = Bearing(41.22000, 2.00000, 41.22000, 2.00249);
-	wxMessageBox(wxString::Format(" A to F: %f", result));
-
-	result = HaversineFormula(41.22000, 2.00000, 41.22000, 2.00249);
-	wxMessageBox(wxString::Format("A To F: %f Nm, %f metres", result, result * 1852));
-
-	result = Bearing(41.22000, 2.00000, 41.21890, 2.00123);
-	wxMessageBox(wxString::Format(" A to E: %f", result));
-
-	result = HaversineFormula(41.22000, 2.00000, 41.21890, 2.00123);
-	wxMessageBox(wxString::Format("A To E: %f Nm, %f metres", result, result * 1852));
-
-	result = Bearing(41.22206, 2.00250, 41.2200, 2.00500);
-	wxMessageBox(wxString::Format(" B to C: %f", result));
-
-	result = HaversineFormula(41.22206, 2.00250, 41.2200, 2.00500);
-	wxMessageBox(wxString::Format("B To C: %f Nm, %f metres", result, result * 1852));
-
-	result = Bearing(41.22206, 2.00250, 41.21890, 2.00123);
-	wxMessageBox(wxString::Format(" B to E: %f", result));
-
-	result = HaversineFormula(41.22206, 2.00250, 41.2189, 2.00123);
-	wxMessageBox(wxString::Format("B To E: %f Nm, %f metres", result, result * 1852));
-
-	result = Bearing(41.21890, 2.00123, 41.22000, 2.00500);
-	wxMessageBox(wxString::Format("E to C: %f", result));
-
-	result = HaversineFormula(41.2189, 2.00123, 41.22000, 2.00500);
-	wxMessageBox(wxString::Format("E To C: %f Nm, %f metres", result, result * 1852));
-	
-	double bearingAtoF = Bearing(41.22000, 2.00000, 41.22000, 2.00249);
-
-	double bearingBtoE = Bearing(41.22206, 2.00250, 41.21890, 2.00123);
-
-	if (CalculateIntersection(41.22000, 2.00000, bearingAtoF, 41.22206, 2.00250, bearingBtoE, &intersectLatitude, &intersectLongitude)) {
-		wxMessageBox(wxString::Format("Intersects at: %f,%f", intersectLatitude, intersectLongitude));
-		double result = HaversineFormula(41.22206, 2.00250, intersectLatitude, intersectLongitude);
-		wxMessageBox(wxString::Format("Distance to Start Line:  %f Nm, %f metres", result, result * 1852));
-		if (IsWithinBoundingBox(intersectLatitude, intersectLongitude)) {
-			wxMessageBox("Is Within Start Line");
-		}
-	}
-	else {
-		wxMessageBox("No intersection");
-	}
-	
-	*/

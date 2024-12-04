@@ -59,7 +59,7 @@ set(VERSION_TWEAK "0")
 set(VERSION_DATE "31/10/2024")
 set(OCPN_MIN_VERSION "ov50")
 set(OCPN_API_VERSION_MAJOR "1")
-set(OCPN_API_VERSION_MINOR "18")
+set(OCPN_API_VERSION_MINOR "19")
 set(TP_COMMENT "Release for O5 using CI")
 
 set(PARENT "opencpn")
@@ -149,9 +149,7 @@ add_definitions(-DUSE_S57)
 # ---- Section Below - Add your project SET(SRCS and SET(HDRS  etc..
 
 SET(SOURCES src/racing_plugin.cpp
-            src/racing_dialog.cpp
             src/racing_gauge.cpp
-            src/racing_dialogbase.cpp
             src/racing_window.cpp
             src/racing_windowbase.cpp
             src/racing_settings.cpp
@@ -161,8 +159,6 @@ SET(SOURCES src/racing_plugin.cpp
 SET(HEADERS inc/racing_plugin.h
             inc/racing_gauge.h
             inc/racing_graphics.h
-            inc/racing_dialog.h
-            inc/racing_dialogbase.h
             inc/racing_window.h
             inc/racing_windowbase.h
             inc/racing_settings.h
@@ -238,7 +234,7 @@ if (NOT OCPN_FLATPAK_CONFIG)
     target_link_libraries(${PACKAGE_NAME} windows::headers)
   endif (WIN32)
 
-  add_subdirectory(opencpn-libs/api-18)
+  add_subdirectory(opencpn-libs/api-19)
   target_link_libraries(${PACKAGE_NAME} ocpn::api)
 
   add_subdirectory(opencpn-libs/nmea0183)

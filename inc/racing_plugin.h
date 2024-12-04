@@ -16,7 +16,7 @@
 // along with the Racing plugin for OpenCPN. If not, see <https://www.gnu.org/licenses/>.
 //
 // NMEA2000® is a registered trademark of the National Marine Electronics Association
-// Racing® is a registered trademark of Active Research Limited
+// Actisense® is a registered trademark of Active Research Limited
 
 
 #ifndef RACING_PLUGIN_H
@@ -47,7 +47,6 @@
 #include "wx/jsonreader.h"
 #include "wx/jsonval.h"
 #include "wx/jsonwriter.h"
-
 
 // Race Start Dialog
 #include "racing_dialog.h"
@@ -80,8 +79,10 @@
 // Strings
 #include <wx/string.h>
 
+// STL
+#include <vector>
 
-// Plugin receives events from the Race Start Display Window
+// Plugin receives events from the Countdown Timer dialog
 const wxEventType wxEVT_RACE_DIALOG_EVENT = wxNewEventType();
 const int RACE_DIALOG_CLOSED = wxID_HIGHEST + 1;
 const int RACE_DIALOG_PORT = wxID_HIGHEST + 2;
@@ -89,7 +90,8 @@ const int RACE_DIALOG_STBD = wxID_HIGHEST + 3;
 
 // Globally accessible variables used by the plugin, dialogs etc.
 
-// Note speed, distance values are always in the users chosen units
+// Note speed, distance values are stored using OpenCPN defaut units,
+// but always displayed in the user's chosen units
 double currentLatitude = 0.0f;
 double currentLongitude = 0.0f;
 double courseOverGround = 0.0f;
@@ -106,12 +108,11 @@ double trueWindSpeed = 0.0f;
 double driftSpeed = 0.0f;
 double driftAngle = 0.0f;
 
-// Protect access to lat & long read/write
-//wxCriticalSection* lockPositionFix;
+// Protect simultaneous read & write access to latitude and longitude
 wxMutex lockPositionFix;
 
 // Toolbar state
-bool racingWindowVisible;
+bool isCountdownTimerVisible;
 
 // "Wind Wizard" gauge state
 bool isWindWizardVisible = false;
@@ -120,18 +121,25 @@ bool isWindWizardVisible = false;
 wxBitmap pluginBitmap;
 
 // Some configuration settings
+// If we draw the start line on the screen
 bool showStartline;
+// Not currently implemented
 bool showLayLines;
+// If we draw an arrow indicating apparent wind angle on the screen
 bool showWindAngles;
+// If we draw only on one canvas or on both when in multi canvas mode
 bool showMultiCanvas;
+// If we calculate true wind angle and speed and transmit the NMEA 2000 Message
 bool generatePGN130306;
+// If we calculate true wind angle and speed and transmit the NMEA MWV Sentence
 bool generateMWVSentence;
+// Not currently implemented
 int tackingAngle;
+// Default value for the Countdown timer interval
 int defaultTimerValue;
 
-
 // The Racing plugin
-class RacingPlugin : public opencpn_plugin_118, public wxEvtHandler {
+class RacingPlugin : public opencpn_plugin_119, public wxEvtHandler {
 
 public:
 	// The constructor
@@ -148,6 +156,7 @@ public:
 	int GetAPIVersionMinor();
 	int GetPlugInVersionMajor();
 	int GetPlugInVersionMinor();
+	int GetPlugInVersionPatch();
 	wxString GetCommonName();
 	wxString GetShortDescription();
 	wxString GetLongDescription();
@@ -162,12 +171,14 @@ public:
 	void SetupToolboxPanel(int page_sel, wxNotebook* pnotebook);
 	void OnCloseToolboxPanel(int page_sel, int ok_apply_cancel);
 	void ShowPreferencesDialog(wxWindow* parent);
+	void SetNMEASentence(wxString& sentence);
+	void SetColorScheme(PI_ColorScheme cs);
 	void SetPluginMessage(wxString& message_id, wxString& message_body);
 	bool RenderGLOverlayMultiCanvas(wxGLContext* pcontext, PlugIn_ViewPort* vp,
 		int canvasIndex, int priority);
 	bool RenderOverlayMultiCanvas(wxDC& dc, PlugIn_ViewPort* vp,
 		int canvasIndex, int priority);
-
+	void PreShutdownHook();
 
 	// Event Handler for events received from the Race Start Display Window
 	void OnDialogEvent(wxCommandEvent &event);
@@ -179,34 +190,28 @@ public:
 	void UpdateAuiStatus(void);
 
 private: 
-	// Race Display modal dialog
-	RacingDialog *racingDialog;
-	// or
-	// Race Display modeless dialog
-	RacingWindow *racingWindow;
+	// Countdown Timer non-modal dialog
+	RacingWindow* racingWindow;
 
 	// Reference to the OpenCPN window handle
 	wxWindow *parentWindow;
 	
-	// Reference to wxAUI Manager
+	// Reference to OpenCPN AUI Manager
 	wxAuiManager* auiManager;
 
-	// OpenCPN Confuration Settings
-	wxFileConfig* configSettings;
-
 	// Toolbar id
-	int racingToolbar;
+	int racingToolbarId;
 
 	// Context Menu id
 	int racingContextMenuId;
 
-	// WindWizard gauge
+	// "Wind Wizard" gauge
 	WindWizard* windWizard;
 
 	// Settings Toolbox
 	RacingToolbox* racingToolbox;
 
-	// Settings Toolbox, container for the above
+	// Container for the Settings Toolbox
 	wxScrolledWindow* toolBoxWindow;
 	wxBoxSizer* toolboxSizer;
 
@@ -215,7 +220,7 @@ private:
 
 	// The driver handle for the requested network protocol
 	DriverHandle n2kNetworkHandle;
-	wxString GetNetworkInterface(wxString protocol);
+	DriverHandle GetNetworkInterface(std::string protocol);
 
 	// Send a NMEA0183 True Wind Sentence
 	void GenerateTrueWindSentence(void);
@@ -227,13 +232,10 @@ private:
 	wxString ComputeChecksum(wxString sentence);
 
 	// Maintain positions for the next waypoint / racing mark, so that a bearing can be calculated
-	bool waypointActive = false;
+	bool isWaypointActive = false;
 	double waypointBearing, waypointDistance;
 
-	// The "old" mechanism for receiving NMEA 0183 sentences
-	void SetNMEASentence(wxString& sentence);
-
-	// NMEA 0183, NMEA 2000 and NavMsg Listeners
+	// NMEA 0183, NMEA 2000 and NavMsg Listener Handlers
 
 	// NMEA 0183 MWV Wind sentence
 	void HandleMWV(ObservedEvt ev);
@@ -248,7 +250,7 @@ private:
 	std::shared_ptr<ObservableListener> listener_vhw;
 
 	// OpenCPN's position, speed, heading etc.
-	// Means we don't need to parse NMEA 0183, NMEA 2000 or Signalk position data
+	// Used instead of parsing NMEA 0183, NMEA 2000 or Signalk position data
 	void HandleNavData(ObservedEvt ev);
 	std::shared_ptr<ObservableListener> listener_nav;
 
@@ -268,9 +270,17 @@ private:
 	void HandleSignalK(ObservedEvt ev);
 	std::shared_ptr<ObservableListener> listener_SignalK;
 
-	// Parse the SignalK update messages
+	// OpenCPN Core Messaging
+	void HandleMsgData(ObservedEvt ev);
+	std::shared_ptr<ObservableListener> listener_msg;
+
+	// Parse the SignalK update messages, either from GetSignalKPayload or OCPN Messaging
+	wxString selfURN;
 	void HandleSKUpdate(wxJSONValue& value);
 	void HandleSKItem(wxJSONValue& item);
+
+	// Variable to handle OpenCPN Shutdown, doesn't do anything
+	bool bShutdown;
 
 	// Calculate True Wind from boat speed and apparent wind speed and direction
 	void CalculateTrueWind();
@@ -283,11 +293,14 @@ private:
 
 	// One second timer to update the "Wind Wizard" gauge
 	wxTimer* oneSecondTimer;
-	void OnTimerElapsed(wxEvent& event);
+	void OnTimerElapsed(wxTimerEvent& event);
 
 	// Proof of concept for capturing an image of the screen
-	// May have been of use for https://www.cruisersforum.com/forums/f134/two-things-288437.html
 	void CreateScreenShot();
+
+	// OpenCPN Configuration Settings
+	void SaveSettings(void);
+	void LoadSettings(void);
 
 	// OpenCPN's Own Ship Heading Predictor Length
 	int headingPredictorLength;
@@ -295,8 +308,10 @@ private:
 	// Start line marks
 	wxString starboardMarkGuid;
 	wxString portMarkGuid;
-	double starboardMarkLatitude, starboardMarkLongitude, portMarkLatitude, portMarkLongitude;
-
+	double starboardMarkLatitude;
+	double starboardMarkLongitude;
+	double portMarkLatitude;
+	double portMarkLongitude;
 };
 
 #endif 

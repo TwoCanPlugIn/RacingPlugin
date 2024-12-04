@@ -151,7 +151,7 @@ int RacingPlugin::Init(void) {
 
 	// SignalK
 	// BUG BUG OpenCPN is yet to implement/export the GetSignalKPayload method
-#if (OCPN_API_VERSION_MINOR == 18)
+#if (OCPN_API_VERSION_MINOR == 19)
 	wxDEFINE_EVENT(EVT_SIGNALK, ObservedEvt);
 	SignalkId id_signalk = SignalkId("self");
 	listener_SignalK = std::move(GetListener(id_signalk, EVT_SIGNALK, this));
@@ -210,7 +210,7 @@ int RacingPlugin::Init(void) {
 	auiManager->Connect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
 
 	// BUG BUG LateInit broken in API 1.19, so invoke it here
-#if (OCPN_API_VERSION_MINOR == 18)
+#if (OCPN_API_VERSION_MINOR == 19)
 	LateInit();
 #endif
 

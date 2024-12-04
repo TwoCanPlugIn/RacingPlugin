@@ -139,8 +139,12 @@ int tackingAngle;
 int defaultTimerValue;
 
 // The Racing plugin
-class RacingPlugin : public opencpn_plugin_119, public wxEvtHandler {
-
+#if (OCPN_API_VERSION_MINOR == 18)
+class RacingPlugin : public opencpn_plugin_118, public wxEvtHandler {
+#endif
+#if (OCPN_API_VERSION_MINOR == 19)
+	class RacingPlugin : public opencpn_plugin_119, public wxEvtHandler {
+#endif
 public:
 	// The constructor
 	RacingPlugin(void *ppimgr);
@@ -178,7 +182,11 @@ public:
 		int canvasIndex, int priority);
 	bool RenderOverlayMultiCanvas(wxDC& dc, PlugIn_ViewPort* vp,
 		int canvasIndex, int priority);
+	
+	// Only supported in API 1.19
+#if (OCPN_API_VERSION_MINOR == 19)	
 	void PreShutdownHook();
+#endif
 
 	// Event Handler for events received from the Race Start Display Window
 	void OnDialogEvent(wxCommandEvent &event);
@@ -267,12 +275,16 @@ private:
 	std::shared_ptr<ObservableListener> listener_128267;
 
 	// SignalK listener
+#if (OCPN_API_VERSION_MINOR == 19)
 	void HandleSignalK(ObservedEvt ev);
 	std::shared_ptr<ObservableListener> listener_SignalK;
+#endif
 
 	// OpenCPN Core Messaging
+#if (OCPN_API_VERSION_MINOR == 19)
 	void HandleMsgData(ObservedEvt ev);
 	std::shared_ptr<ObservableListener> listener_msg;
+#endif
 
 	// Parse the SignalK update messages, either from GetSignalKPayload or OCPN Messaging
 	wxString selfURN;
@@ -280,7 +292,7 @@ private:
 	void HandleSKItem(wxJSONValue& item);
 
 	// Variable to handle OpenCPN Shutdown, doesn't do anything
-	bool bShutdown;
+	bool bShutdown = false;
 
 	// Calculate True Wind from boat speed and apparent wind speed and direction
 	void CalculateTrueWind();

@@ -41,7 +41,12 @@ extern "C" DECL_EXP void destroy_pi(opencpn_plugin* p) {
 }
 
 // Constructor
-RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_119(ppimgr), wxEvtHandler() {
+#if (OCPN_API_VERSION_MINOR == 18)
+RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_118(ppimgr), wxEvtHandler() {
+#endif
+#if (OCPN_API_VERSION_MINOR == 19)
+	RacingPlugin::RacingPlugin(void* ppimgr) : opencpn_plugin_119(ppimgr), wxEvtHandler() {
+#endif
 	
 	// Dialogs displayed by the plugin
 	windWizard = nullptr;
@@ -146,12 +151,14 @@ int RacingPlugin::Init(void) {
 
 	// SignalK
 	// BUG BUG OpenCPN is yet to implement/export the GetSignalKPayload method
+#if (OCPN_API_VERSION_MINOR == 18)
 	wxDEFINE_EVENT(EVT_SIGNALK, ObservedEvt);
 	SignalkId id_signalk = SignalkId("self");
 	listener_SignalK = std::move(GetListener(id_signalk, EVT_SIGNALK, this));
 	Bind(EVT_SIGNALK, [&](ObservedEvt ev) {
 		HandleSignalK(ev);
 		});
+#endif
 
 	// OpenCPN Core NavData
 	wxDEFINE_EVENT(EVT_NAV_DATA, ObservedEvt);
@@ -160,14 +167,16 @@ int RacingPlugin::Init(void) {
 		HandleNavData(ev);
 		});
 
-	// OpenCPN Messaging - Only implemented with API 1.19
+	// OpenCPN Messaging
 	// BUG BUG Doesn't work
+#if (OCPN_API_VERSION_MINOR == 19)
 	wxDEFINE_EVENT(EVT_OCPN_MSG, ObservedEvt);
 	PluginMsgId msg_id = PluginMsgId("WMM_VARIATION_BOAT");
 	listener_msg = std::move(GetListener(msg_id, EVT_OCPN_MSG, this));
 	Bind(EVT_OCPN_MSG, [&](ObservedEvt ev) {
 		HandleMsgData(ev);
 		});
+#endif
 	
 	// Retrieve a NMEA 2000 network interface which is used to transmit
 	// PGN 130306 with the calculated True Wind Angles and Speed.
@@ -201,17 +210,21 @@ int RacingPlugin::Init(void) {
 	auiManager->Connect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
 
 	// BUG BUG LateInit broken in API 1.19, so invoke it here
+#if (OCPN_API_VERSION_MINOR == 18)
 	LateInit();
+#endif
 
 	// Notify OpenCPN what events we want to receive callbacks for
 	return (WANTS_CONFIG | WANTS_PREFERENCES | INSTALLS_TOOLBOX_PAGE |
 		WANTS_TOOLBAR_CALLBACK | INSTALLS_TOOLBAR_TOOL | WANTS_NMEA_EVENTS |
 		WANTS_PLUGIN_MESSAGING | USES_AUI_MANAGER | WANTS_LATE_INIT |
-		WANTS_OVERLAY_CALLBACK | WANTS_OPENGL_OVERLAY_CALLBACK |
-		WANTS_PRESHUTDOWN_HOOK);
+		WANTS_OVERLAY_CALLBACK | WANTS_OPENGL_OVERLAY_CALLBACK 
+#if (OCPN_API_VERSION_MINOR == 19)
+		| WANTS_PRESHUTDOWN_HOOK
+#endif
+		);
 }
 
-// LateInit broken in API 1.19
 // Late init allows plugins to perform additional actions well after the plugin has been loaded
 void RacingPlugin::LateInit(void) {
 	
@@ -220,7 +233,6 @@ void RacingPlugin::LateInit(void) {
 	oneSecondTimer = new wxTimer();
 	oneSecondTimer->Connect(wxEVT_TIMER, wxTimerEventHandler(RacingPlugin::OnTimerElapsed), NULL, this);
 	oneSecondTimer->Start(1000, wxTIMER_CONTINUOUS);
-	wxLogMessage("Racing Plugin, Debug, LateInit called");
 }
 
 // OpenCPN is either closing down, or we have been disabled from the Preferences Dialog
@@ -326,12 +338,14 @@ wxBitmap* RacingPlugin::GetPlugInBitmap() {
 // Optional OpenCPN Plugin Methods
 
 // Pre shutdown, New API in 1.19
+#if (OCPN_API_VERSION_MINOR == 19)
 void RacingPlugin::PreShutdownHook() {
 	bShutdown = true;
 	if (wxMessageBox("OK to shutdown","Shutdown", wxYES_NO) == wxID_NO) {
 		bShutdown = false;
 	}
 }
+#endif
 
 // We only install a single toolbar item
 int RacingPlugin::GetToolbarToolCount(void) {
@@ -833,6 +847,7 @@ void RacingPlugin::HandleN2K_130306(ObservedEvt ev) {
 
 // Parse OpenCPN Core Messaging
 // BUG BUG New API in 1.19 Not working ??
+#if (OCPN_API_VERSION_MINOR == 19)
 void RacingPlugin::HandleMsgData(ObservedEvt ev) {
 
 	PluginMsgId msg_id = PluginMsgId("WMM_VARIATION_BOAT");
@@ -840,10 +855,13 @@ void RacingPlugin::HandleMsgData(ObservedEvt ev) {
 	isWaypointActive = true;
 	wxLogMessage("Racing Plugin, Debug, Received OCPN Message: %s", message);
 }
+#endif
 
+//
 // Parse Signalk. Core OpenCPN has yet to implement/export the GetSignalKPayload method
 // My private build of OpenCPN has exported the GetSignalKPayload method and it does work
 // Otherwise could also use OCPN Messaging to receive SignalK data
+#if (OCPN_API_VERSION_MINOR == 19)
 void RacingPlugin::HandleSignalK(ObservedEvt ev) {
 
 	auto payload = GetSignalkPayload(ev);
@@ -876,6 +894,7 @@ void RacingPlugin::HandleSignalK(ObservedEvt ev) {
 		}
 	}
 }
+#endif
 
 // Receive & handle OpenCPN Messaging, the "Old" mechanism
 void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body) {
@@ -905,6 +924,7 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 		isWaypointActive = false;
 	}
 
+#if (OCPN_API_VERSION_MINOR == 18)
 	// Process SignalK messages, the "Old" way to receive SignalK data
 	else if (message_id == "OCPN_CORE_SIGNALK") {
 		if (jsonReader.Parse(message_body, &root) > 0) {
@@ -942,6 +962,7 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 			}
 		}
 	}
+#endif
 }
 
 // Parse SignalK updates

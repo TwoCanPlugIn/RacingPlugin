@@ -138,7 +138,7 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 		wxGraphicsContext* gc = wxGraphicsContext::Create(dc);
 
 		if (gc) {
-
+			
 			if (nightMode) {
 				SetBackgroundColour(*wxBLACK);
 			}

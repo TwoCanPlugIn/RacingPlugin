@@ -59,7 +59,7 @@ set(VERSION_TWEAK "0")
 set(VERSION_DATE "31/10/2024")
 set(OCPN_MIN_VERSION "ov50")
 set(OCPN_API_VERSION_MAJOR "1")
-set(OCPN_API_VERSION_MINOR "18")
+set(OCPN_API_VERSION_MINOR "19")
 set(TP_COMMENT "Release for O5 using CI")
 
 set(PARENT "opencpn")
@@ -234,7 +234,7 @@ if (NOT OCPN_FLATPAK_CONFIG)
     target_link_libraries(${PACKAGE_NAME} windows::headers)
   endif (WIN32)
 
-  add_subdirectory(opencpn-libs/api-18)
+  add_subdirectory(opencpn-libs/api-${OCPN_API_VERSION_MINOR})
   target_link_libraries(${PACKAGE_NAME} ocpn::api)
 
   add_subdirectory(opencpn-libs/nmea0183)

@@ -1,4 +1,4 @@
-// Copyright(C) 2018-2020 by Steven Adler
+// Copyright(C) 2024 by Steven Adler
 //
 // This file is part of Racing plugin for OpenCPN.
 //
@@ -78,7 +78,5 @@ private:
 	double velocityMadeGood;
 	bool nightMode = false;
 	bool displayBearingToWaypoint = false;
-
 };
-
 #endif

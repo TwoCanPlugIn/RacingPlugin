@@ -43,8 +43,7 @@ extern "C" DECL_EXP void destroy_pi(opencpn_plugin* p) {
 // Constructor
 #if (OCPN_API_VERSION_MINOR == 18)
 RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_118(ppimgr), wxEvtHandler() {
-#endif
-#if (OCPN_API_VERSION_MINOR == 19)
+#elif (OCPN_API_VERSION_MINOR == 19)
 	RacingPlugin::RacingPlugin(void* ppimgr) : opencpn_plugin_119(ppimgr), wxEvtHandler() {
 #endif
 	
@@ -77,6 +76,15 @@ int RacingPlugin::Init(void) {
 	// Load Configuration Settings
 	LoadSettings();
 
+	// Dump some of the OpenCPN's special folders
+	wxLogMessage("Racing Plugin, OpenCPN Program Path (opencpn.exe): %s", GetOCPN_ExePath());
+	wxLogMessage("Racing Plugin, OpenCPN Plugin Path (built-in plugins): %s", *GetpPlugInLocation());
+	wxLogMessage("Racing Plugin, OpenCPN Data Path (logs, config): %s", *GetpPrivateApplicationDataLocation());
+	wxLogMessage("Racing Plugin, Shared Data Path", *GetpSharedDataLocation());
+	wxLogMessage("Racing Plugin, Documents Path: %s", GetWritableDocumentsDir());
+	wxLogMessage("Racing Plugin, 3rd Party Plugin Data Path: %s", GetPluginDataDir(PLUGIN_PACKAGE_NAME));
+	wxLogMessage("Racing Plugin, 3rd Party Plugin Path: %s", GetPlugInPath(this));
+
 	// Load icons for the toolbar
 	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + "data" + wxFileName::GetPathSeparator();
 
@@ -100,6 +108,7 @@ int RacingPlugin::Init(void) {
 
 	// Set up the listeners. NMEA 0183, NMEA 2000 and SignalK are used to obtain data 
 	// for boat speed, apparent wind angle & speed and NavData for position and heading
+	// BUG BUG Should ensure that the connections exist before adding the listeners
 
 	// NMEA 0183 MWV Wind Sentence
 	wxDEFINE_EVENT(EVT_183_MWV, ObservedEvt);
@@ -168,10 +177,10 @@ int RacingPlugin::Init(void) {
 		});
 
 	// OpenCPN Messaging
-	// BUG BUG Doesn't work
+	// BUG BUG Doesn't work, not meant to, it's for REST
 #if (OCPN_API_VERSION_MINOR == 19)
 	wxDEFINE_EVENT(EVT_OCPN_MSG, ObservedEvt);
-	PluginMsgId msg_id = PluginMsgId("WMM_VARIATION_BOAT");
+	PluginMsgId msg_id = PluginMsgId("OCPN_WPT_ACTIVATED");
 	listener_msg = std::move(GetListener(msg_id, EVT_OCPN_MSG, this));
 	Bind(EVT_OCPN_MSG, [&](ObservedEvt ev) {
 		HandleMsgData(ev);
@@ -195,7 +204,7 @@ int RacingPlugin::Init(void) {
 
 	// Instantiate the "Wind Wizard" gauge
 	windWizard = new WindWizard(parentWindow);
-
+	
 	// Add the "Wind Wizard" gauge to the AUI Manager
 	wxAuiPaneInfo paneInfo;
 	paneInfo.Name(PLUGIN_COMMON_NAME);
@@ -209,9 +218,9 @@ int RacingPlugin::Init(void) {
 	auiManager->Update();
 	auiManager->Connect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
 
-	// BUG BUG LateInit broken in API 1.19, so invoke it here
+	// BUG BUG LateInit was broken in API 1.19, so invoke it here
 #if (OCPN_API_VERSION_MINOR == 19)
-	LateInit();
+	//LateInit();
 #endif
 
 	// Notify OpenCPN what events we want to receive callbacks for
@@ -359,6 +368,7 @@ int RacingPlugin::GetToolbarItemId() {
 
 // What to perfom when the toolbar button is presssed
 void RacingPlugin::OnToolbarToolCallback(int id) {
+
 	if (id == racingToolbarId) {
 		// Display the non-modal Countdown Timer dialog
 		if (!isCountdownTimerVisible) {
@@ -387,6 +397,11 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 	}
 }
 
+// Set default values when the plugin is installed
+void RacingPlugin::SetDefaults(void) {
+	wxLogMessage("Racing Plugin, Debug, SetDefaults invoked");
+}
+
 // Add our own tab on the OpenCPN toolbox, under the "User" settings. Ordinarily plugins 
 // would add their own settings dialog launched using the ShowPreferencesDialog method
 void RacingPlugin::OnSetupOptions(void) {
@@ -398,6 +413,12 @@ void RacingPlugin::OnSetupOptions(void) {
 	// Create our toolbox panel and add it to the toolbox via the sizer
 	racingToolbox = new RacingToolbox(toolBoxWindow);
 	toolboxSizer->Add(racingToolbox, 1, wxALL | wxEXPAND);
+}
+
+// Get the number of panels that we install in the toolbox
+int RacingPlugin::GetToolboxPanelCount(void) {
+	wxLogMessage("Racing Plugin, Debug, GetToolboxPanelCount invoked");
+	return 1;
 }
 
 // I have no idea when this is called, supposedly when the plugin is initially installed
@@ -667,10 +688,8 @@ bool RacingPlugin::RenderGLOverlayMultiCanvas(wxGLContext* pcontext, PlugIn_View
 }
 
 // When a route or waypoint is active, OpenCPN provides distance, bearing, waypoint name etc. to the waypoint
-// BUG BUG Broken in API 1.19
 void RacingPlugin::SetActiveLegInfo(Plugin_Active_Leg_Info& pInfo) {
 	
-	wxLogMessage("Racing Plugin, Debug, SetActiveLegInfo: %s", pInfo.wp_name);
 	waypointBearing = pInfo.Btw;
 	// This variable is also set upon reception of OCPN_WPT... and OCPN_RTE... messages
 	isWaypointActive = true;
@@ -846,21 +865,18 @@ void RacingPlugin::HandleN2K_130306(ObservedEvt ev) {
 }
 
 // Parse OpenCPN Core Messaging
-// BUG BUG New API in 1.19 Not working ??
+// BUG BUG New API in 1.19 Not working, only meant for REST Messages
 #if (OCPN_API_VERSION_MINOR == 19)
 void RacingPlugin::HandleMsgData(ObservedEvt ev) {
 
-	PluginMsgId msg_id = PluginMsgId("WMM_VARIATION_BOAT");
+	PluginMsgId msg_id = PluginMsgId("OCPN_WPT_ACTIVATED");
 	std::string message = GetPluginMsgPayload(msg_id, ev);
 	isWaypointActive = true;
-	wxLogMessage("Racing Plugin, Debug, Received OCPN Message: %s", message);
 }
 #endif
 
 //
-// Parse Signalk. Core OpenCPN has yet to implement/export the GetSignalKPayload method
-// My private build of OpenCPN has exported the GetSignalKPayload method and it does work
-// Otherwise could also use OCPN Messaging to receive SignalK data
+// Parse Signalk. 
 #if (OCPN_API_VERSION_MINOR == 19)
 void RacingPlugin::HandleSignalK(ObservedEvt ev) {
 
@@ -914,9 +930,12 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 	else if (message_id == "OCPN_RTE_ENDED") {
 		isWaypointActive = false;
 	}
+#if (OCPN_API_VERSION_MINOR == 18)
+	// For API 1.19 This is now handled by the new Msg Listener
 	else if (message_id == "OCPN_WPT_ACTIVATED") {
 		isWaypointActive = true;
 	}
+#endif
 	else if (message_id == "OCPN_WPT_DEACTIVATED") {
 		isWaypointActive = false;
 	}

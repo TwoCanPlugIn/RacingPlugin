@@ -171,7 +171,9 @@ public:
 	int GetToolbarItemId(void);
 	void OnToolbarToolCallback(int id);
 	void OnContextMenuItemCallback(int id);
+	void SetDefaults(void);
 	void OnSetupOptions(void);
+	int GetToolboxPanelCount(void);
 	void SetupToolboxPanel(int page_sel, wxNotebook* pnotebook);
 	void OnCloseToolboxPanel(int page_sel, int ok_apply_cancel);
 	void ShowPreferencesDialog(wxWindow* parent);

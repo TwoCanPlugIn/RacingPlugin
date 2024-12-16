@@ -27,9 +27,12 @@
 // 1.1 - 4/11/2024, Support for OpenCPM 5.8 Listener API's, "Wind Wizard gauge", Render Overlays
 // 1.2 - 22/11/2024 OpenCPN API 1.19, SignalK/Messaging Listeners. 
 // 
-// BUG BUG Note Broken OCPN Methods, LateInit, SetActiveLegInfo, SetupToolboxPanel, SetPluginMessage
+// BUG BUG Note Broken OCPN Methods: SetDefaults, OnSetupOptions, SetupToolboxPanel
 // BUG BUG Investigate changing new/delete to std::unique_ptr/std::make_unique
 #include "racing_plugin.h"
+
+// BUG BUG Testing notifications
+#include <wx/notifmsg.h>
 
 // The class factories, used to create and destroy instances of the PlugIn
 extern "C" DECL_EXP opencpn_plugin* create_pi(void *ppimgr) {
@@ -158,8 +161,7 @@ int RacingPlugin::Init(void) {
 		HandleN2K_128259(ev);
 		});
 
-	// SignalK
-	// BUG BUG OpenCPN is yet to implement/export the GetSignalKPayload method
+	// SignalK, Observer Listener now supported in API 1.19
 #if (OCPN_API_VERSION_MINOR == 19)
 	wxDEFINE_EVENT(EVT_SIGNALK, ObservedEvt);
 	SignalkId id_signalk = SignalkId("self");
@@ -177,7 +179,6 @@ int RacingPlugin::Init(void) {
 		});
 
 	// OpenCPN Messaging
-	// BUG BUG Doesn't work, not meant to, it's for REST
 #if (OCPN_API_VERSION_MINOR == 19)
 	wxDEFINE_EVENT(EVT_OCPN_MSG, ObservedEvt);
 	PluginMsgId msg_id = PluginMsgId("OCPN_WPT_ACTIVATED");
@@ -191,6 +192,13 @@ int RacingPlugin::Init(void) {
 	// PGN 130306 with the calculated True Wind Angles and Speed.
 	// This is an example of writing to the NMEA 2000 Network
 	n2kNetworkHandle = GetNetworkInterface("nmea2000");
+
+	// Retrieve a NMEA 0183 network interface which is used to transmit
+	// MWV sentences with True Wind Angles and Speed.
+	// This is an example of writing to the NMEA 0183 Network
+	// in addition to PushNMEABuffer
+	n183NetworkHandle = GetNetworkInterface("nmea0183");
+
 
 	// Plugins need to register what NMEA 2000 PGN's they transmit. This is required for
 	// Actisense NGT-1 Adapters, presumably results in a null operation (NOP) for other interfaces
@@ -399,7 +407,7 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 
 // Set default values when the plugin is installed
 void RacingPlugin::SetDefaults(void) {
-	wxLogMessage("Racing Plugin, Debug, SetDefaults invoked");
+	SendNotification("Racing Plugin, Debug, SetDefaults invoked");
 }
 
 // Add our own tab on the OpenCPN toolbox, under the "User" settings. Ordinarily plugins 
@@ -417,14 +425,14 @@ void RacingPlugin::OnSetupOptions(void) {
 
 // Get the number of panels that we install in the toolbox
 int RacingPlugin::GetToolboxPanelCount(void) {
-	wxLogMessage("Racing Plugin, Debug, GetToolboxPanelCount invoked");
+	SendNotification("Racing Plugin, Debug, GetToolboxPanelCount invoked");
 	return 1;
 }
 
 // I have no idea when this is called, supposedly when the plugin is initially installed
 // but it seems like it is no longer implemented
 void RacingPlugin::SetupToolboxPanel(int page_sel, wxNotebook* pnotebook) {
-	wxLogMessage("Racing Plugin, Debug, SetupToolboxPanel invoked: %d", page_sel);
+	SendNotification(wxString::Format("Racing Plugin, Debug, SetupToolboxPanel invoked: %d", page_sel));
 }
 
 // Invoked when the OpenCPN Toolbox OK, Apply or Cancel buttons are pressed
@@ -864,13 +872,14 @@ void RacingPlugin::HandleN2K_130306(ObservedEvt ev) {
 	}
 }
 
-// Parse OpenCPN Core Messaging
-// BUG BUG New API in 1.19 Not working, only meant for REST Messages
+// Parse OpenCPN Core Messaging, New API in 1.19 Now working for both REST and Plugin Messaging
 #if (OCPN_API_VERSION_MINOR == 19)
 void RacingPlugin::HandleMsgData(ObservedEvt ev) {
 
 	PluginMsgId msg_id = PluginMsgId("OCPN_WPT_ACTIVATED");
 	std::string message = GetPluginMsgPayload(msg_id, ev);
+	// Proof of concept for notification messages
+	SendNotification(msg_id.id);
 	isWaypointActive = true;
 }
 #endif
@@ -915,13 +924,36 @@ void RacingPlugin::HandleSignalK(ObservedEvt ev) {
 // Receive & handle OpenCPN Messaging, the "Old" mechanism
 void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body) {
 
-	wxLogMessage("Racing Plugin, Debug, Received Message: %s", message_id);
+	// Some known OCPN Messages
+	// OpenCPN Config
+	// OCPN_CORE_SIGNALK
+	// OCPN_OPENGL_CONFIG
+	// WMM_VARIATION_BOAT
+	// WMM_WINDOW_SHOWN
+	// WMM_WINDOW_HIDDEN
+	// AIS
+	// OCPN_WPT_ACTIVATED
+	// OCPN_WPT_DEACTIVATED
+	// OCPN_WPT_ARRIVED
+	// OCPN_RTE_ACTIVATED
+	// OCPN_RTE_DEACTIVATED
+	// OCPN_RTE_ENDED
+	// GRIB_VALUES
 
 	wxJSONReader jsonReader;
 	wxJSONValue root;
 	// Parse navigation related messages to determine whether to 
 	// display bearing to waypoint etc. 
-	if (message_id == "OCPN_RTE_ACTIVATED") {
+
+	if (message_id == "OpenCPN Config") {
+	}
+	else if (message_id == "OCPN_OPENGL_CONFIG") {
+	}
+	else if (message_id == "WMM_VARIATION_BOAT") {
+	}
+	else if (message_id == "AIS") {
+	}
+	else if (message_id == "OCPN_RTE_ACTIVATED") {
 		isWaypointActive = true;
 	}
 	else if (message_id == "OCPN_RTE_DEACTIVATED") {
@@ -942,7 +974,6 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 	else if (message_id == "OCPN_WPT_ARRIVED") {
 		isWaypointActive = false;
 	}
-
 #if (OCPN_API_VERSION_MINOR == 18)
 	// Process SignalK messages, the "Old" way to receive SignalK data
 	else if (message_id == "OCPN_CORE_SIGNALK") {
@@ -981,7 +1012,13 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 			}
 		}
 	}
+#else if(OCPN_API_VERSION_MINOR == 19)
+	else if (message_id == "OCPN_CORE_SIGNALK") {
+	}
 #endif
+	else {
+		wxLogMessage("Racing Plugin, Debug, SetPluginMessage: %s, %s", message_id, message_body);
+	}
 }
 
 // Parse SignalK updates
@@ -1037,9 +1074,41 @@ void RacingPlugin::GenerateTrueWindSentence(void) {
 	sentence.Append("*");
 	sentence.Append(checksum);
 	sentence.Append("\r\n");
-	// Send it to OpenCPN
+	// Transmit the NMEA 0183 sentence, the "old" method
 	PushNMEABuffer(sentence);
-	// Alternatively could have used WriteCommDriver.
+	// The "new" method
+	if (!n183NetworkHandle.empty()) {
+		SendNMEA0183(sentence);
+	}
+}
+
+// Transmit onto NMEA 0183 connection
+void RacingPlugin::SendNMEA0183(wxString sentence) {
+	CommDriverResult result;
+	std::vector<uint8_t> payload;
+	for (size_t i = 0; i < sentence.length(); i++) {
+		payload.push_back(sentence.at(i));
+	}
+
+	auto sharedPointer = std::make_shared<std::vector<uint8_t> >(std::move(payload));
+	result = WriteCommDriver(n183NetworkHandle, sharedPointer);
+	wxLogMessage(_T("Racing Plugin, Debug, Send NMEA 0183 %s, %s, %d"), n183NetworkHandle.c_str(), sentence, result);
+}
+
+// FYI Note that the payload for PluginMessaging consists of id<space>message
+void RacingPlugin::SendOCPNMessage(PluginMsgId msg_id, wxString message) {
+	CommDriverResult result;
+	std::vector<uint8_t> payload;
+	for (auto it : msg_id.id) {
+		payload.push_back(it);
+	}
+	payload.push_back(' '); // The space between the id and the message
+	for (auto it : message) {
+		payload.push_back(it);
+	}
+	auto sharedPointer = std::make_shared<std::vector<uint8_t> >(std::move(payload));
+	result = WriteCommDriver(ocpnMessageHandle, sharedPointer);
+	wxLogMessage(_T("Racing Plugin, Debug, Send OCPN Message %s, %s, %d"), n183NetworkHandle.c_str(), message, result);
 }
 
 // Generate NMEA 2000 PGN 130306 message with True Wind
@@ -1238,21 +1307,29 @@ DriverHandle RacingPlugin::GetNetworkInterface(std::string selectedProtocol) {
 		wxLogMessage("Racing Plugin, Interface: %s", activeDriver);
 		for (auto const& driver : GetAttributes(activeDriver)) {
 			if (driver.first == "protocol") {
-				wxLogDebug("Racing Plugin, Network, Type: %s, Protocol: %s", driver.first, driver.second);
+				wxLogMessage("Racing Plugin, Network, Type: %s, Protocol: %s", driver.first, driver.second);
 			}
-			if (driver.first == "netAddress") {
-				wxLogDebug("Racing Plugin, Network, Type: %s, IP Address: %s", driver.first, driver.second);
+			else if (driver.first == "netAddress") {
+				wxLogMessage("Racing Plugin, Network, Type: %s, IP Address: %s", driver.first, driver.second);
 			}
-			if (driver.first == "netPort") {
-				wxLogDebug("Racing Plugin, Network, Type: %s, Port: %s", driver.first, driver.second);
+			else if (driver.first == "netPort") {
+				wxLogMessage("Racing Plugin, Network, Type: %s, Port: %s", driver.first, driver.second);
 			}
-			if (driver.first == "commPort") {
-				wxLogDebug("Racing Plugin, Network, Type: %s, Comm Port: %s", driver.first, driver.second);
+			else if (driver.first == "commPort") {
+				wxLogMessage("Racing Plugin, Network, Type: %s, Comm Port: %s", driver.first, driver.second);
 			}
+			else {
+				wxLogMessage("Racing Plugin, Network, First: %s, Second: %s", driver.first, driver.second);
+			}
+
 			if (driver.second == selectedProtocol) {
 				wxLogMessage("Racing Plugin, Network Protocol %s using %s", selectedProtocol, activeDriver);
 				return activeDriver;
 			}
+
+			// Need to check for first: ioDirection, Second: IN/OUT for input/output
+			// Note also First: userComment, Second "user comment text"
+			
 		}
 	}
 	wxLogMessage("Racing Plugin, No Networks supporting %s were found", selectedProtocol);
@@ -1311,4 +1388,15 @@ void RacingPlugin::CalculateDrift() {
 
 	//wxLogMessage("Racing Plugin, Drift: Angle %0.02f, Speed: %0.02f", driftAngle, driftSpeed);
 
+}
+
+// Raise the platform specific notification
+void RacingPlugin::SendNotification(wxString message) {
+	wxNotificationMessage* myNotification;
+	myNotification = new wxNotificationMessage(PLUGIN_COMMON_NAME,
+		message, parentWindow, wxICON_INFORMATION);
+#ifdef __WXMSW__
+	myNotification->MSWUseToasts();
+#endif
+	myNotification->Show();
 }

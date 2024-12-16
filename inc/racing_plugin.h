@@ -228,9 +228,25 @@ private:
 	// Plugin Preferences 
 	RacingSettings* racingSettings;
 
-	// The driver handle for the requested network protocol
+	// The interface for a NMEA 2000 connection
 	DriverHandle n2kNetworkHandle;
+
+	// The interface for NMEA 0183 connection
+	DriverHandle n183NetworkHandle;
+
+	// The interface for OpenCPN Plugin Messaging
+	DriverHandle ocpnMessageHandle;
+
+	// Returns the first interface for a requested protocol;
+	// either NMEA 2000 or NMEA 0183
 	DriverHandle GetNetworkInterface(std::string protocol);
+
+	// Transmit data over the NMEA 0183 connection
+	void SendNMEA0183(wxString sentence);
+
+	// Send an OpenCPN Message
+	// Not clear whether this is supported
+	void SendOCPNMessage(PluginMsgId msg_id, wxString message);
 
 	// Send a NMEA0183 True Wind Sentence
 	void GenerateTrueWindSentence(void);
@@ -311,6 +327,9 @@ private:
 
 	// Proof of concept for capturing an image of the screen
 	void CreateScreenShot();
+
+	// Proof of concept for notifications
+	void SendNotification(wxString message);
 
 	// OpenCPN Configuration Settings
 	void SaveSettings(void);

@@ -1012,7 +1012,7 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 			}
 		}
 	}
-#else if(OCPN_API_VERSION_MINOR == 19)
+#elif(OCPN_API_VERSION_MINOR == 19)
 	else if (message_id == "OCPN_CORE_SIGNALK") {
 	}
 #endif

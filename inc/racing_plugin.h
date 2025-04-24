@@ -120,6 +120,9 @@ bool isWindWizardVisible = false;
 // Bitmap used for both the plugin and dialogs
 wxBitmap pluginBitmap;
 
+// Bitmap used to draw a buoy on the chart
+wxBitmap buoyBitmap;
+
 // Some configuration settings
 // If we draw the start line on the screen
 bool showStartline;
@@ -184,7 +187,10 @@ public:
 		int canvasIndex, int priority);
 	bool RenderOverlayMultiCanvas(wxDC& dc, PlugIn_ViewPort* vp,
 		int canvasIndex, int priority);
-	
+	void SetCursorLatLon(double lat, double lon);
+	void SetCurrentViewPort(PlugIn_ViewPort& vp);
+	bool MouseEventHook(wxMouseEvent& event);
+
 	// Only supported in API 1.19
 #if (OCPN_API_VERSION_MINOR == 19)	
 	void PreShutdownHook();
@@ -240,6 +246,8 @@ private:
 	// Returns the first interface for a requested protocol;
 	// either NMEA 2000 or NMEA 0183
 	DriverHandle GetNetworkInterface(std::string protocol);
+
+	DriverHandle GetNetworkInterfaceV2(std::string selectedProtocol);
 
 	// Transmit data over the NMEA 0183 connection
 	void SendNMEA0183(wxString sentence);
@@ -345,6 +353,9 @@ private:
 	double starboardMarkLongitude;
 	double portMarkLatitude;
 	double portMarkLongitude;
+
+	// The Chart ViewPort
+	PlugIn_ViewPort viewPort;
 };
 
 #endif 

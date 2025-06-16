@@ -36,26 +36,64 @@ RacingSettings::~RacingSettings() {
 }
 
 void RacingSettings::OnInit(wxInitDialogEvent& event) {
+	checkLayline->SetValue(showStartline);
+	checkStartLine->SetValue(showStartline);
+	checkMultiCanvas->SetValue(showMultiCanvas);
+	checkWindAngle->SetValue(showWindAngles);
 	checkNMEA2000->SetValue(generatePGN130306);
 	checkNMEA0183->SetValue(generateMWVSentence);
-	// Save the original settings so that if the user has changed the values, but then cancels...
+	spinCountdown->SetValue(defaultTimerValue / 60);
+	spinTackingAngle->SetValue(tackingAngle);
+
+	// Save the original settings in case user changes values, hits apply, but then cancels...
 	originalGeneratePGN130306 = generatePGN130306;
 	originalGenerateMWVSentence = generateMWVSentence;
+	originalDefaultTimerValue = defaultTimerValue;
+	originalShowLayLines = showLayLines;
+	originalShowMultiCanvas = showMultiCanvas;
+	originalShowStartline = showStartline;
+	originalShowWindAngles = showWindAngles;
+	originalTackingAngle = tackingAngle;
+
 }
 
 void RacingSettings::OnOK(wxCommandEvent& event) {
+
+	defaultTimerValue = spinCountdown->GetValue() * 60; // In seconds
+	tackingAngle = spinTackingAngle->GetValue();
 	generatePGN130306 = checkNMEA2000->IsChecked();
 	generateMWVSentence = checkNMEA0183->IsChecked();
+	showLayLines = checkLayline->IsChecked();
+	showMultiCanvas = checkMultiCanvas->IsChecked();
+	showStartline = checkStartLine->IsChecked();
+	showWindAngles = checkWindAngle->IsChecked();
+
 	EndModal(wxID_OK);
 }
 
 void RacingSettings::OnCancel(wxCommandEvent& event) {
+	// Restore the original settings
 	generatePGN130306 = originalGeneratePGN130306;
 	generateMWVSentence = originalGenerateMWVSentence;
+	defaultTimerValue = originalDefaultTimerValue;
+	tackingAngle = originalTackingAngle;
+	showLayLines = originalShowLayLines;
+	showMultiCanvas = originalShowMultiCanvas;
+	showStartline = originalShowStartline;
+	showWindAngles = originalShowWindAngles;
+
 	EndModal(wxID_CANCEL);
 }
 
 void RacingSettings::OnApply(wxCommandEvent& event) {
+
+	defaultTimerValue = spinCountdown->GetValue() * 60;
+	tackingAngle = spinTackingAngle->GetValue();
 	generatePGN130306 = checkNMEA2000->IsChecked();
 	generateMWVSentence = checkNMEA0183->IsChecked();
+	showLayLines = checkLayline->IsChecked();
+	showMultiCanvas = checkMultiCanvas->IsChecked();
+	showStartline = checkStartLine->IsChecked();
+	showWindAngles = checkWindAngle->IsChecked();
+
 }

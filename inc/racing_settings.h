@@ -31,9 +31,15 @@
 #include "racing_settingsbase.h"
 
 // Globally defined setting controlled by this dialog
+
+extern bool showStartline;
+extern bool showLayLines;
+extern bool showWindAngles;
+extern bool showMultiCanvas;
+extern int tackingAngle;
+extern int defaultTimerValue;
 extern bool generatePGN130306;
 extern bool generateMWVSentence;
-
 
 class RacingSettings : public RacingSettingsBase {
 	
@@ -49,9 +55,14 @@ protected:
 	void OnApply(wxCommandEvent& event);
 
 private:
+	bool originalShowStartline;
+	bool originalShowLayLines;
+	bool originalShowWindAngles;
+	bool originalShowMultiCanvas;
+	int originalTackingAngle;
+	int originalDefaultTimerValue;
 	bool originalGeneratePGN130306;
 	bool originalGenerateMWVSentence;
-
 };
 
 #endif

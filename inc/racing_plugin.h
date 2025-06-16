@@ -1,4 +1,4 @@
-// Copyright(C) 2018-2020 by Steven Adler
+// Copyright(C) 2018-2025 by Steven Adler
 //
 // This file is part of Racing plugin for OpenCPN.
 //
@@ -30,23 +30,50 @@
 #endif
 
 // Defines version numbers, names etc. for this plugin
-// This is automagically constructed via version.h.in from CMakeLists.txt, personally I think this is convoluted
+// This is automagically constructed via version.h.in from CMakeLists.txt, a bit convoluted...
 #include "version.h"
 
-// OpenCPN include file
+// OpenCPN Plugin header
 #include "ocpn_plugin.h"
 
-//NMEA 0183 
+// OpenCPN OpenGL header 
+#include "pidc.h"
+
+// NMEA 0183, Refer to OpenCPN Libraries
 #include "nmea0183.h"
 
-// NMEA 2000
+// NMEA 2000, Refer to OpenCPN Libraries
 #include "N2KParser.h"
 
-// wxJSON (used for parsing SignalK data)
+// wxJSON, Refer to OpenCPN Libraries
+// Used for parsing SignalK data
 #include "wx/json_defs.h"
 #include "wx/jsonreader.h"
 #include "wx/jsonval.h"
 #include "wx/jsonwriter.h"
+
+// wxWidgets include files
+
+// AUI Manager
+#include <wx/aui/aui.h>
+#include <wx/aui/framemanager.h>
+
+// Configuration
+#include <wx/fileconf.h>
+
+// Strings
+#include <wx/string.h>
+
+// Notifications 
+// Not to be confused with OpenCPN notifications
+#include <wx/notifmsg.h>
+
+// Sockets 
+// Used for debug spew
+#include <wx/socket.h>
+
+// STL
+#include <vector>
 
 // Race Start Dialog
 #include "racing_dialog.h"
@@ -61,37 +88,22 @@
 // "Wind Wizard" gauge, similar to B&G SailSteer
 #include "racing_gauge.h"
 
-// OpenGL 
-#include "pidc.h"
-
 // OpenCPN Device Context Abstraction Layer
 #include "racing_graphics.h"
-
-// wxWidgets include files
-
-// AUI Manager
-#include <wx/aui/aui.h>
-#include <wx/aui/framemanager.h>
-
-// Configuration
-#include <wx/fileconf.h>
-
-// Strings
-#include <wx/string.h>
-
-// STL
-#include <vector>
 
 // Plugin receives events from the Countdown Timer dialog
 const wxEventType wxEVT_RACE_DIALOG_EVENT = wxNewEventType();
 const int RACE_DIALOG_CLOSED = wxID_HIGHEST + 1;
 const int RACE_DIALOG_PORT = wxID_HIGHEST + 2;
 const int RACE_DIALOG_STBD = wxID_HIGHEST + 3;
+const int WINDWIZARD_MENU = wxID_HIGHEST + 4;
+const int ALERT_MENU = wxID_HIGHEST + 5;
+const int DSC_MENU = wxID_HIGHEST + 6;
 
 // Globally accessible variables used by the plugin, dialogs etc.
 
 // Note speed, distance values are stored using OpenCPN defaut units,
-// but always displayed in the user's chosen units
+// but should always be displayed in the user's chosen units
 double currentLatitude = 0.0f;
 double currentLongitude = 0.0f;
 double courseOverGround = 0.0f;
@@ -111,17 +123,14 @@ double driftAngle = 0.0f;
 // Protect simultaneous read & write access to latitude and longitude
 wxMutex lockPositionFix;
 
-// Toolbar state
+// Countdown timer dialog shown/hidden state
 bool isCountdownTimerVisible;
 
-// "Wind Wizard" gauge state
+// "Wind Wizard" gauge shown/hidden state
 bool isWindWizardVisible = false;
 
 // Bitmap used for both the plugin and dialogs
 wxBitmap pluginBitmap;
-
-// Bitmap used to draw a buoy on the chart
-wxBitmap buoyBitmap;
 
 // Some configuration settings
 // If we draw the start line on the screen
@@ -144,10 +153,12 @@ int defaultTimerValue;
 // The Racing plugin
 #if (OCPN_API_VERSION_MINOR == 18)
 class RacingPlugin : public opencpn_plugin_118, public wxEvtHandler {
-#endif
-#if (OCPN_API_VERSION_MINOR == 19)
+#elif (OCPN_API_VERSION_MINOR == 19)
 	class RacingPlugin : public opencpn_plugin_119, public wxEvtHandler {
+#elif (OCPN_API_VERSION_MINOR >= 20)
+class RacingPlugin : public opencpn_plugin_120, public wxEvtHandler {
 #endif
+
 public:
 	// The constructor
 	RacingPlugin(void *ppimgr);
@@ -190,13 +201,18 @@ public:
 	void SetCursorLatLon(double lat, double lon);
 	void SetCurrentViewPort(PlugIn_ViewPort& vp);
 	bool MouseEventHook(wxMouseEvent& event);
+	void OnIconize(wxIconizeEvent& event);
 
 	// Only supported in API 1.19
-#if (OCPN_API_VERSION_MINOR == 19)	
+#if (OCPN_API_VERSION_MINOR >= 19)	
 	void PreShutdownHook();
 #endif
+	// Only supported in API 1.20
+#if (OCPN_API_VERSION_MINOR >= 20)
+	void OnContextMenuItemCallbackExt(int id, std::string obj_ident, std::string obj_type, double lat, double lon);
+#endif
 
-	// Event Handler for events received from the Race Start Display Window
+	// Event Handler for events received from the Countdown timer dialog
 	void OnDialogEvent(wxCommandEvent &event);
 	
 	// Event Handler for wxAUI Manager
@@ -206,7 +222,7 @@ public:
 	void UpdateAuiStatus(void);
 
 private: 
-	// Countdown Timer non-modal dialog
+	// Countdown Timer displayed in a non-modal dialog
 	RacingWindow* racingWindow;
 
 	// Reference to the OpenCPN window handle
@@ -218,20 +234,21 @@ private:
 	// Toolbar id
 	int racingToolbarId;
 
-	// Context Menu id
+	// Context Menu id's
 	int racingContextMenuId;
+	int alertContextMenuId;
+	int dscContextMenuId;
 
 	// "Wind Wizard" gauge
 	WindWizard* windWizard;
-
-	// Settings Toolbox
+	// Settings Toolbox dialog
 	RacingToolbox* racingToolbox;
 
 	// Container for the Settings Toolbox
 	wxScrolledWindow* toolBoxWindow;
 	wxBoxSizer* toolboxSizer;
 
-	// Plugin Preferences 
+	// Plugin Preferences dialog
 	RacingSettings* racingSettings;
 
 	// The interface for a NMEA 2000 connection
@@ -243,18 +260,22 @@ private:
 	// The interface for OpenCPN Plugin Messaging
 	DriverHandle ocpnMessageHandle;
 
+	void FindMessageDriver(void);
+
 	// Returns the first interface for a requested protocol;
 	// either NMEA 2000 or NMEA 0183
 	DriverHandle GetNetworkInterface(std::string protocol);
-
-	DriverHandle GetNetworkInterfaceV2(std::string selectedProtocol);
+	// Same as above but uses a differrent mechanism to search through the list
+	DriverHandle GetNetworkInterfaceV2(std::string protocol);
 
 	// Transmit data over the NMEA 0183 connection
 	void SendNMEA0183(wxString sentence);
 
+#if (OCPN_API_VERSION_MINOR >= 19)	
 	// Send an OpenCPN Message
 	// Not clear whether this is supported
 	void SendOCPNMessage(PluginMsgId msg_id, wxString message);
+#endif
 
 	// Send a NMEA0183 True Wind Sentence
 	void GenerateTrueWindSentence(void);
@@ -301,13 +322,13 @@ private:
 	std::shared_ptr<ObservableListener> listener_128267;
 
 	// SignalK listener
-#if (OCPN_API_VERSION_MINOR == 19)
+#if (OCPN_API_VERSION_MINOR >= 19)
 	void HandleSignalK(ObservedEvt ev);
 	std::shared_ptr<ObservableListener> listener_SignalK;
 #endif
 
 	// OpenCPN Core Messaging
-#if (OCPN_API_VERSION_MINOR == 19)
+#if (OCPN_API_VERSION_MINOR >= 19)
 	void HandleMsgData(ObservedEvt ev);
 	std::shared_ptr<ObservableListener> listener_msg;
 #endif
@@ -317,27 +338,27 @@ private:
 	void HandleSKUpdate(wxJSONValue& value);
 	void HandleSKItem(wxJSONValue& item);
 
-	// Variable to handle OpenCPN Shutdown, doesn't do anything
+	// Variable to handle OpenCPN Shutdown, Supposedly the new API gives plugin's an opportunity to clean up?
 	bool bShutdown = false;
 
 	// Calculate True Wind from boat speed and apparent wind speed and direction
 	void CalculateTrueWind();
 
-	// Another version
+	// Another version of above
 	void CalculateTrueWindV2();
 
 	// Calculate Drift using difference between COG & Heading.
 	void CalculateDrift();
 
-	// One second timer to update the "Wind Wizard" gauge
+	// One second timer to update the "Wind Wizard" gauge and its event handler
 	wxTimer* oneSecondTimer;
 	void OnTimerElapsed(wxTimerEvent& event);
 
 	// Proof of concept for capturing an image of the screen
 	void CreateScreenShot();
 
-	// Proof of concept for notifications
-	void SendNotification(wxString message);
+	// Proof of concept for notifications. Different to OpenCPN notifications.
+	void SendSystemNotification(wxString message);
 
 	// OpenCPN Configuration Settings
 	void SaveSettings(void);

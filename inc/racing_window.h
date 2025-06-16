@@ -61,10 +61,6 @@ public:
 	
 	// The plugin event handler to which we post events
 	wxEvtHandler *eventHandlerAddress;
-
-	// Cleanup
-	void Close();
-
 	
 protected:
 	//overridden methods from the base class

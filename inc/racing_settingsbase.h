@@ -11,12 +11,14 @@
 #include <wx/xrc/xmlres.h>
 #include <wx/intl.h>
 #include <wx/string.h>
-#include <wx/checkbox.h>
+#include <wx/stattext.h>
 #include <wx/gdicmn.h>
 #include <wx/font.h>
 #include <wx/colour.h>
 #include <wx/settings.h>
+#include <wx/spinctrl.h>
 #include <wx/sizer.h>
+#include <wx/checkbox.h>
 #include <wx/statbox.h>
 #include <wx/button.h>
 #include <wx/bitmap.h>
@@ -34,6 +36,14 @@ class RacingSettingsBase : public wxDialog
 	private:
 
 	protected:
+		wxStaticText* labelTimer;
+		wxSpinCtrl* spinCountdown;
+		wxStaticText* labelTacking;
+		wxSpinCtrl* spinTackingAngle;
+		wxCheckBox* checkWindAngle;
+		wxCheckBox* checkStartLine;
+		wxCheckBox* checkLayline;
+		wxCheckBox* checkMultiCanvas;
 		wxCheckBox* checkNMEA2000;
 		wxCheckBox* checkNMEA0183;
 		wxButton* buttonOK;
@@ -42,6 +52,14 @@ class RacingSettingsBase : public wxDialog
 
 		// Virtual event handlers, override them in your derived class
 		virtual void OnInit( wxInitDialogEvent& event ) { event.Skip(); }
+		virtual void OnCountdownTimerUpdated( wxSpinEvent& event ) { event.Skip(); }
+		virtual void OnTackingAngleUpdated( wxSpinEvent& event ) { event.Skip(); }
+		virtual void OnWindAngleChanged( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnStartlineChanged( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnLaylineChanged( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnCanvasChanged( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnNMEA2000Changed( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnNMEA0183Changed( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnOK( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnApply( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnCancel( wxCommandEvent& event ) { event.Skip(); }

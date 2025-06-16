@@ -78,16 +78,11 @@ void RacingWindow::Initialize(void) {
 
 void RacingWindow::OnClose(wxCloseEvent& event) {
 
-	Close();
 	// Notify the plugin that the Countdown Timer is closed
 	wxCommandEvent *closeEvent = new wxCommandEvent(wxEVT_RACE_DIALOG_EVENT, RACE_DIALOG_CLOSED);
 	wxQueueEvent(eventHandlerAddress, closeEvent);
-	event.Skip();
-}
 
-// Cleanup
-void RacingWindow::Close() {
-
+	// Cleanup
 	if (stopWatch != nullptr) {
 		if (stopWatch->IsRunning()) {
 			stopWatch->Stop();
@@ -95,6 +90,8 @@ void RacingWindow::Close() {
 		stopWatch->Disconnect(stopWatch->GetId(), wxEVT_TIMER, wxTimerEventHandler(RacingWindow::OnTimer));
 		delete stopWatch;
 	}
+
+	Destroy();  // Investigate event.Skip();
 }
 
 void RacingWindow::OnTimer(wxTimerEvent& event) {
@@ -205,8 +202,12 @@ void RacingWindow::OnPort(wxCommandEvent &event) {
 	}
 }
 
+// BUG BUG Perhaps get rid of the Cancel button
 void RacingWindow::OnCancel(wxCommandEvent &event) {
-	this->Close();
+	wxCloseEvent closeEvent;
+	closeEvent.SetCanVeto(false);
+	closeEvent.SetEventType(event.GetEventType());
+	OnClose(closeEvent);
 }
 
 void RacingWindow::ResetTimer(void) {

@@ -38,6 +38,79 @@ wxDatagramSocket* debugSocket;
 wxIPV4address addrLocal;
 wxIPV4address addrPeer;
 
+// Used for testing Antipole's Bug - Delete when closed
+const wxChar* ParseGPXDateTime(wxDateTime& dt, const wxChar* datetime) {
+	long sign, hrs_west, mins_west;
+	const wxChar* end;
+
+	// Skip any leading whitespace
+	while (isspace(*datetime)) datetime++;
+
+	// Skip (and ignore) leading hyphen
+	if (*datetime == wxT('-')) datetime++;
+
+	// Parse and validate ISO 8601 date/time string
+	if ((end = dt.ParseFormat(datetime, wxT("%Y-%m-%dT%T"))) != NULL) {
+		// Invalid date/time
+		if (*end == 0) return NULL;
+
+		// ParseFormat outputs in UTC if the controlling
+		// wxDateTime class instance has not been initialized.
+
+		// Date/time followed by UTC time zone flag, so we are done
+		else if (*end == wxT('Z')) {
+			end++;
+			return end;
+		}
+
+		// Date/time followed by given number of hrs/mins west of UTC
+		else if (*end == wxT('+') || *end == wxT('-')) {
+			// Save direction from UTC
+			if (*end == wxT('+'))
+				sign = 1;
+			else
+				sign = -1;
+			end++;
+
+			// Parse hrs west of UTC
+			if (isdigit(*end) && isdigit(*(end + 1)) && *(end + 2) == wxT(':')) {
+				// Extract and validate hrs west of UTC
+				wxString(end).ToLong(&hrs_west);
+				if (hrs_west > 12) return NULL;
+				end += 3;
+
+				// Parse mins west of UTC
+				if (isdigit(*end) && isdigit(*(end + 1))) {
+					// Extract and validate mins west of UTC
+					wxChar mins[3];
+					mins[0] = *end;
+					mins[1] = *(end + 1);
+					mins[2] = 0;
+					wxString(mins).ToLong(&mins_west);
+					if (mins_west > 59) return NULL;
+
+					// Apply correction
+					dt -= sign * wxTimeSpan(hrs_west, mins_west, 0, 0);
+					return end + 2;
+				}
+				else
+					// Missing mins digits
+					return NULL;
+			}
+			else
+				// Missing hrs digits or colon
+				return NULL;
+		}
+		else
+			// Unknown field after date/time (not UTC, not hrs/mins
+			//  west of UTC)
+			return NULL;
+	}
+	else
+		// Invalid ISO 8601 date/time
+		return NULL;
+}
+
 // The class factories, used to create and destroy instances of the PlugIn
 extern "C" DECL_EXP opencpn_plugin* create_pi(void *ppimgr) {
 	return new RacingPlugin(ppimgr);
@@ -69,7 +142,7 @@ RacingPlugin::RacingPlugin(void* ppimgr) : opencpn_plugin_120(ppimgr), wxEvtHand
 	// Initialize a UDP socket for debug spew
 	addrLocal.Hostname();
 	addrPeer.Hostname("127.0.0.1");
-	addrPeer.Service(4321);
+	addrPeer.Service(6666);
 
 	debugSocket = new wxDatagramSocket(addrLocal, wxSOCKET_NONE);
 
@@ -165,9 +238,16 @@ int RacingPlugin::Init(void) {
 	alertContextMenuId = AddCanvasContextMenuItem(alertMenu, this);
 
 #if (OCPN_API_VERSION_MINOR >= 20)
+	// Valid Sub Menu Names "Route", " Waypoint", "Track", "AIS")
+
 	// This menu item is added to the AIS Sub Menu
 	wxMenuItem* dscMenu = new wxMenuItem(NULL, DSC_MENU, "DSC Call", "Call target om VHF", wxITEM_NORMAL, NULL);
 	dscContextMenuId = AddCanvasContextMenuItemExt(dscMenu, this, "AIS");
+
+	// This menu item is added to the Route Sub Menu
+	wxMenuItem* rteMenu = new wxMenuItem(NULL, RTE_MENU, "To NMEA 2000", "Send to NMEA 2000", wxITEM_NORMAL, NULL);
+	rteContextMenuId = AddCanvasContextMenuItemExt(rteMenu, this, "Route");
+
 #endif
 
 	// Set up the listeners. NMEA 0183, NMEA 2000 and SignalK are used to obtain data 
@@ -252,17 +332,17 @@ int RacingPlugin::Init(void) {
 	// Retrieve a NMEA 2000 network interface which is used to transmit
 	// PGN 130306 with the calculated True Wind Angles and Speed.
 	// This is an example of writing to the NMEA 2000 Network
-	n2kNetworkHandle = GetNetworkInterface("nmea2000");
+	n2kNetworkHandle = GetNetworkInterfaceV2("nmea2000");
 
 	// Retrieve a NMEA 0183 network interface which is used to transmit
 	// MWV sentences with True Wind Angles and Speed.
 	// This is an example of writing to the NMEA 0183 Network
 	// in addition to PushNMEABuffer
-	n183NetworkHandle = GetNetworkInterface("nmea0183");
+	n183NetworkHandle = GetNetworkInterfaceV2("nmea0183");
 
 	// Get an interface for internal OpenCPN messaging
-	// BUG BUG Not implemented
-	ocpnMessageHandle = GetNetworkInterface("internal");
+	// BUG BUG Not implemented ??
+	ocpnMessageHandle = GetNetworkInterfaceV2("Internal");
 
 	// Plugins need to register what NMEA 2000 PGN's they transmit. This is required for
 	// Actisense NGT-1 Adapters, presumably results in a null operation (NOP) for other interfaces
@@ -423,15 +503,15 @@ bool RacingPlugin::MouseEventHook(wxMouseEvent& event) {
 
 	//GetCanvasCount() {
 	
-	// Mke sure we are not beyond the bounds
-	//CheckMUIEdgePan_PlugIn(g_cursor_x, g_cursor_y, event.Dragging(), g_EdgePanSensitivity, 2, m_drawing_canvas_index);
+	// Make sure we are not beyond the bounds
+	// CheckMUIEdgePan_PlugIn(g_cursor_x, g_cursor_y, event.Dragging(), g_EdgePanSensitivity, 2, m_drawing_canvas_index);
 	
 	if (event.LeftDClick()) {
 		wxPoint wxP;
 		wxP = event.GetPosition();
 		GetCanvasLLPix(&viewPort, wxP, &lat, &lon);
 
-		wxString message = wxString::Format("Double Click at Position: %0.2f, %0.2f", lat, lon);
+		wxString message = wxString::Format("Left Double Click at Position: %0.2f, %0.2f", lat, lon);
 		SendSystemNotification(message);
 	}
 
@@ -567,14 +647,47 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 
 	// Raise an OpenCPN Alert (different to a platform OS notification)
 	if (id == alertContextMenuId) {
+
+		FindMessageDriver("internal");
+
+		FindMessageDriver("Internal");
+
 #if (OCPN_API_VERSION_MINOR >= 20)
-		wxString notificationResponse(RaiseNotification(PI_NotificationSeverity::PI_kWarning, "Racing Plugin Demo Notofication"));
-		// Display the reulting GUI created by OpenCPN to identify the alert
+		wxString notificationResponse(RaiseNotification(PI_NotificationSeverity::PI_kWarning, "Racing Plugin Demo Notification"));
+		// Display the resulting GUID created by OpenCPN to identify the alert
 		wxMessageBox(wxString::Format("Notification GUID: %s", notificationResponse), "Notification");
 #else
-		wxMessageBox(wxString::Format("Notifications not supported on API level: %d", OCPN_API_VERSION_MINOR));
+		//wxMessageBox(wxString::Format("Notifications not supported on API level: %d", OCPN_API_VERSION_MINOR));
+		wxDialog* falseDialog = new wxDialog(parentWindow, wxID_ANY, "Notification Error");
+		wxBoxSizer* falseDialogSizer = new wxBoxSizer(wxOrientation::wxVERTICAL);
+		wxStaticText* label = new wxStaticText(falseDialog, wxID_ANY, "This is an error message");
+		falseDialogSizer->Add(label);
+
+		wxStdDialogButtonSizer* buttonSizer = new wxStdDialogButtonSizer();
+		buttonSizer->SetOrientation(wxOrientation::wxHORIZONTAL);
+
+		wxButton* okButton = new wxButton(falseDialog, wxID_OK, "OK");
+		wxButton* cancelButton = new wxButton(falseDialog, wxID_CANCEL, "Cancel");
+		//buttonSizer->AddButton(okButton);
+		//buttonSizer->AddButton(cancelButton);
+		buttonSizer->AddStretchSpacer(2);
+		buttonSizer->Add(okButton,0, wxALL | wxBORDER, 5);
+		buttonSizer->Add(cancelButton, 0, wxALL | wxBORDER , 5);
+
+		//buttonSizer->SetAffirmativeButton(okButton);
+		//buttonSizer->SetCancelButton(cancelButton);
+		falseDialogSizer->AddStretchSpacer(2);
+		falseDialogSizer->Add(buttonSizer);
+		
+		falseDialog->SetSizer(falseDialogSizer);
+		if (wxID_OK == falseDialog->ShowModal()) {
+			wxMessageBox("OK");
+		}
+
 #endif
 	}
+
+	
 }
 
 #if (OCPN_API_VERSION_MINOR >= 20)
@@ -585,6 +698,53 @@ void RacingPlugin::OnContextMenuItemCallbackExt(int id, std::string obj_ident, s
 		wxMessageBox(wxString::Format("Object Id: %d\nObject Identifier (MMSI): %s\nObject Type: %s\nLatitude: %s\nLongitude: %s",
 			id, obj_ident.c_str(), obj_type.c_str(),
 			toSDMM_PlugIn(1, lat, true), toSDMM_PlugIn(2, lon, true)), "AIS Target Information", wxOK | wxICON_INFORMATION);
+	}
+
+	// Handle the Context Menu call back if the object was a Route
+	if (id == rteContextMenuId) {
+
+		wxMessageBox(wxString::Format("Object Id: %d\nObject Identifier (Route): %s\nObject Type: %s",
+			id, obj_ident.c_str(), obj_type.c_str()), "Route Information", wxOK | wxICON_INFORMATION);
+		
+		
+		// And if it is an active route, display the route & waypoints
+		wxString currentRoute = GetActiveRouteGUID();
+
+		if (!currentRoute.IsEmpty()) {
+			std::unique_ptr<PlugIn_Route> activeRoute;
+			activeRoute = GetRoute_Plugin(currentRoute);
+			wxMessageBox(wxString::Format("Route: %s\n", activeRoute->m_NameString));
+
+			Plugin_WaypointList* list = activeRoute->pWaypointList;
+
+			for (Plugin_WaypointList::iterator it = list->begin(); it != list->end(); ++it) {
+				auto wp = *it;
+				wxMessageBox(wxString::Format("GUID: %s\nName: %s\nLat: %0.2f\nLon: %0.2f\nDate: %s", wp->m_GUID, wp->m_MarkName,
+					wp->m_lat, wp->m_lon, wp->m_CreateTime.FormatISOCombined()));
+
+			}
+		}
+
+		wxString currentWaypoint = GetActiveWaypointGUID();
+		if (!currentWaypoint.IsEmpty()) {
+
+			wxMessageBox(wxString::Format("Current Waypoint (GUID)%s", currentWaypoint));
+
+		}
+
+		// This was for Tony (Antipole's) bug.
+		// Testing Navobj db & waypoint errors for date time, creation date etc.
+		wxString point_time_string = "2023-12-23T10:07:26Z";
+		if (point_time_string.size()) {
+			wxString sdt(point_time_string.c_str());
+			PlugIn_Waypoint* point = new PlugIn_Waypoint();
+			wxDateTime dt;
+			ParseGPXDateTime(dt, sdt);
+
+			wxMessageBox(dt.FormatISOCombined());
+
+		}
+
 	}
 }
 #endif
@@ -906,7 +1066,7 @@ bool RacingPlugin::RenderGLOverlayMultiCanvas(wxGLContext* pcontext, PlugIn_View
 void RacingPlugin::SetActiveLegInfo(Plugin_Active_Leg_Info& pInfo) {
 	
 	waypointBearing = pInfo.Btw;
-	// This variable is also set upon reception of OCPN_WPT... and OCPN_RTE... messages
+	// We also set this variable upon reception of OCPN_WPT... and OCPN_RTE... messages
 	isWaypointActive = true;
 }
 
@@ -1085,7 +1245,6 @@ void RacingPlugin::HandleN2K_130306(ObservedEvt ev) {
 // Parse OpenCPN Core Messaging, New API in 1.19 Now working for both REST and Plugin Messaging
 #if (OCPN_API_VERSION_MINOR >= 19)
 void RacingPlugin::HandleMsgData(ObservedEvt ev) {
-
 	PluginMsgId msg_id = PluginMsgId("OCPN_WPT_ACTIVATED");
 	std::string message = GetPluginMsgPayload(msg_id, ev);
 	isWaypointActive = true;
@@ -1288,7 +1447,7 @@ void RacingPlugin::GenerateTrueWindSentence(void) {
 	sentence.Append(checksum);
 	sentence.Append("\r\n");
 	// Transmit the NMEA 0183 sentence, the "old" method
-	PushNMEABuffer(sentence);
+	// PushNMEABuffer(sentence);
 	// The "new" method
 	if (!n183NetworkHandle.empty()) {
 		SendNMEA0183(sentence);
@@ -1335,10 +1494,12 @@ void RacingPlugin::GenerateTrueWindMessage(void) {
 	tN2kMsg N2kMsg;
 	// Only Transmit if we have a valid NMEA 2000 connection
 	if (!n2kNetworkHandle.empty()) {
+		CommDriverResult result;
 		SetN2kWindSpeed(N2kMsg, 1, trueWindSpeed, trueWindAngle, tN2kWindReference::N2kWind_True_boat);
 		std::vector<uint8_t> payload(N2kMsg.Data, N2kMsg.Data + N2kMsg.GetAvailableDataLength());
 		auto sharedPointer = std::make_shared<std::vector<uint8_t>>(payload);
-		WriteCommDriverN2K(n2kNetworkHandle, 130306, 255, 5, sharedPointer);
+		result = WriteCommDriverN2K(n2kNetworkHandle, 130306, 255, 5, sharedPointer);
+		wxLogMessage(_T("Racing Plugin, Debug, Send NMEA 2000 %s: %d"), n2kNetworkHandle.c_str(), result);
 	}
 }
 
@@ -1391,6 +1552,11 @@ void RacingPlugin::OnTimerElapsed(wxTimerEvent& ev) {
 		if (generatePGN130306) {
 			GenerateTrueWindMessage();
 		}
+
+
+		PluginMsgId* id = new PluginMsgId("Racing Plugin");
+
+		SendOCPNMessage(*id, "Fuck Off");
 
 	}
 		// Every second could also take a screen capture
@@ -1515,34 +1681,65 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
 
 // Retrieves the first interface for the selected protocol
 DriverHandle RacingPlugin::GetNetworkInterfaceV2(std::string protocol) {
-	for (const auto& handle : GetActiveDrivers()) {
-		const auto& attributes = GetAttributes(handle);
+	for (const auto& driver : GetActiveDrivers()) {
+		const auto& attributes = GetAttributes(driver);
+		// If none of the std::map entries have a protocol attribute, do the next for loop iteration
 		if (attributes.find("protocol") == attributes.end())
 			continue;
+		// Found our requested protocol
 		if (attributes.at("protocol") == protocol) {
 			if (attributes.find("ioDirection")!= attributes.end()) {
-				if (attributes.at("ioDirection") == "IN/OUT") {
-					return handle;
+				// Found a driver that support output
+				if ((attributes.at("ioDirection") == "IN/OUT") || (attributes.at("ioDirection") == "OUT")) {
+					wxLogMessage("Racing Plugin, Using %s for %s", driver, protocol);
+					return driver;
 				}
 			}
 		}
 	}
-	return {};
+	wxLogMessage("Racing Plugin, No driver found supporting %s", protocol);
+	return "";
 }
 
-void RacingPlugin::FindMessageDriver(void) {
+// Attempting to find the internal message driver interface
+void RacingPlugin::FindMessageDriver(std::string infernalDriverName) {
 	const auto& drivers = GetActiveDrivers();
 	auto found = std::find_if(
-		drivers.begin(), drivers.end(), [](const DriverHandle& h) {
-			return GetAttributes(h).at("protocol") == "internal";
+		drivers.begin(), drivers.end(), [infernalDriverName](const DriverHandle& h) {
+			return GetAttributes(h).at("protocol") == infernalDriverName;
 		});
 	if (found != drivers.end()) {
-		wxMessageBox("Found Internal Driver");
+		wxMessageBox(wxString::Format("%s driver found", infernalDriverName));
 	}
 	else {
-		wxMessageBox("No Internal Driver found");
+		wxMessageBox(wxString::Format("%s driver not found", infernalDriverName));
 	}
 }
+
+/*
+DriverHandle RacingPlugin::GetNetworkInterfaceV3(std::string selectedProtocol) {
+
+	bool foundProtocol = false;
+	std::vector<DriverHandle> activeDrivers;
+	activeDrivers = GetActiveDrivers();
+
+	auto it1 = std::find_if(activeDrivers.begin(), activeDrivers.end(),
+		[selectedProtocol](const auto& p) { return p.first == "Protocol" && p.second == selectedProtocol; });
+
+	if (it1 != activeDrivers.end()) {
+		foundProtocol = true;
+	}
+
+	auto it2 = std::find_if(activeDrivers.begin(), activeDrivers.end(),
+		[](const auto& p) { return p.first == "ioDirection" && ((p.second == "OUT") || (p.second == "IN/OUT")); });
+	if (foundProtocol) {
+		if (it2 != activeDrivers.end()) {
+			return *it2;
+		}
+		foundProtocol = false;
+	}
+}
+*/
 
 // Retrieves the first interface for the selected protocol
 // BUG BUG Ignores multiple interfaces. 
@@ -1550,37 +1747,45 @@ void RacingPlugin::FindMessageDriver(void) {
 // Available protocols include "nmea2000", "SignalK", "nmea0183"
 // Note that writing to SignalK is unsupported
 DriverHandle RacingPlugin::GetNetworkInterface(std::string selectedProtocol) {
-	
+	bool foundProtocol = false;
 	std::vector<DriverHandle> activeDrivers;
 	activeDrivers = GetActiveDrivers();
-	for (auto const& activeDriver : activeDrivers) {
-		wxLogMessage("Racing Plugin, Interface: %s", activeDriver);
-		for (auto const& driver : GetAttributes(activeDriver)) {
-			if (driver.first == "protocol") {
-				wxLogMessage("Racing Plugin, Network, Type: %s, Protocol: %s", driver.first, driver.second);
-			}
-			else if (driver.first == "netAddress") {
-				wxLogMessage("Racing Plugin, Network, Type: %s, IP Address: %s", driver.first, driver.second);
-			}
-			else if (driver.first == "netPort") {
-				wxLogMessage("Racing Plugin, Network, Type: %s, Port: %s", driver.first, driver.second);
-			}
-			else if (driver.first == "commPort") {
-				wxLogMessage("Racing Plugin, Network, Type: %s, Comm Port: %s", driver.first, driver.second);
-			}
-			else if (driver.first == "ioDirection") {
-				wxLogMessage("Racing Plugin, Network, Type: %s, IO Direction: %s", driver.first, driver.second);
-			}
-			else if (driver.first == "userComment") {
-				wxLogMessage("Racing Plugin, Network, Type: %s, User Comment: %s", driver.first, driver.second);
-			}
-			else { // An undefined attribute ?
-				wxLogMessage("Racing Plugin, Network, First: %s, Second: %s", driver.first, driver.second);
+	for (auto const& driver : activeDrivers) {
+		wxLogMessage("Racing Plugin, Interface: %s", driver);
+		for (auto const& attributes : GetAttributes(driver)) {
+			if (attributes.first == "protocol") {
+				wxLogMessage("Racing Plugin, Network, Type: %s, Protocol: %s", attributes.first, attributes.second);
+				// We've found a matching protocol
+				if (attributes.second == selectedProtocol) {
+					foundProtocol = true;
+				}
 			}
 
-			if (driver.second == selectedProtocol) {
-				wxLogMessage("Racing Plugin, Network Protocol %s using %s", selectedProtocol, activeDriver);
-				return activeDriver;
+			else if (attributes.first == "netAddress") {
+				wxLogMessage("Racing Plugin, Network, Type: %s, IP Address: %s", attributes.first, attributes.second);
+			}
+			else if (attributes.first == "netPort") {
+				wxLogMessage("Racing Plugin, Network, Type: %s, Port: %s", attributes.first, attributes.second);
+			}
+			else if (attributes.first == "commPort") {
+				wxLogMessage("Racing Plugin, Network, Type: %s, Comm Port: %s", attributes.first, attributes.second);
+			}
+			else if (attributes.first == "ioDirection") {
+				wxLogMessage("Racing Plugin, Network, Type: %s, IO Direction: %s", attributes.first, attributes.second);
+				// Check to see if it is an output
+				if (foundProtocol) {
+					if ((attributes.second == "OUT") || (attributes.second == "IN/OUT")) {
+						wxLogMessage("Racing Plugin, Network Protocol %s using %s", selectedProtocol, driver);
+						return driver;
+					}
+					foundProtocol = false;
+				}
+			}
+			else if (attributes.first == "userComment") {
+				wxLogMessage("Racing Plugin, Network, Type: %s, User Comment: %s", attributes.first, attributes.second);
+			}
+			else { // An undefined attribute ?
+				wxLogMessage("Racing Plugin, Network, First: %s, Second: %s", attributes.first, attributes.second);
 			}
 		}
 	}

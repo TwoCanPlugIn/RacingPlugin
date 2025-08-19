@@ -59,13 +59,13 @@ endif (COMMAND cmake_policy)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
 
 # define plugin name, owner and versions
-set(VERBOSE_NAME "Race_Start_Display")
-set(COMMON_NAME "Race Start Display")
-set(TITLE_NAME "RACESTARTDISPLAY")
+set(VERBOSE_NAME "Racing Plugin")
+set(COMMON_NAME "Racing Plugin")
+set(TITLE_NAME "RACINGPLUGIN")
 set(PACKAGE_CONTACT "twocanplugin@hotmail.com")
-set(PACKAGE "race_start_display")
-set(SHORT_DESCRIPTION "Race Start Display, A simple tool for yacht racing")
-set(LONG_DESCRIPTION "Race Start Display, A simple tool for yacht racing, Displays countdown timer, distance and time to start line") 
+set(PACKAGE "Racing_Plugin") # This is the resultant dll Racing_Plugin_pi and Visual Studio Solution
+set(SHORT_DESCRIPTION "Racing Plugin, A simple tool for yacht racing")
+set(LONG_DESCRIPTION "Racing Plugun, A simple tool for yacht racing, Displays countdown timer, distance and time to start line") 
 set(VERSION_MAJOR "1")
 set(VERSION_MINOR "4")
 set(VERSION_PATCH "0")
@@ -301,10 +301,11 @@ if (UNIX
       )
     endif (NOT (${elfedit} STREQUAL "elfedit-NOTFOUND"))
   endif (PI_JSON_SCHEMA_VALIDATOR)
-endif (
-  UNIX
-  AND NOT APPLE
-  AND NOT QT_ANDRIOD
+endif (UNIX
+    AND NOT APPLE
+    AND NOT QT_ANDRIOD
+    AND NOT OCPN_FLATPAK_CONFIG
+    AND NOT OCPN_FLATPAK_BUILD
 )
 
 # ------- Change below to match project requirements

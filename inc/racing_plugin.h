@@ -99,6 +99,7 @@ const int RACE_DIALOG_STBD = wxID_HIGHEST + 3;
 const int WINDWIZARD_MENU = wxID_HIGHEST + 4;
 const int ALERT_MENU = wxID_HIGHEST + 5;
 const int DSC_MENU = wxID_HIGHEST + 6;
+const int RTE_MENU = wxID_HIGHEST + 7;
 
 // Globally accessible variables used by the plugin, dialogs etc.
 
@@ -238,6 +239,7 @@ private:
 	int racingContextMenuId;
 	int alertContextMenuId;
 	int dscContextMenuId;
+	int rteContextMenuId;
 
 	// "Wind Wizard" gauge
 	WindWizard* windWizard;
@@ -260,13 +262,18 @@ private:
 	// The interface for OpenCPN Plugin Messaging
 	DriverHandle ocpnMessageHandle;
 
-	void FindMessageDriver(void);
+	// Attempting to find teh "internal" driver.
+	void FindMessageDriver(std::string name);
 
 	// Returns the first interface for a requested protocol;
 	// either NMEA 2000 or NMEA 0183
 	DriverHandle GetNetworkInterface(std::string protocol);
-	// Same as above but uses a differrent mechanism to search through the list
+
+	// Same as above but using std::find
 	DriverHandle GetNetworkInterfaceV2(std::string protocol);
+
+	// Same as above but using std::find_if
+	//DriverHandle GetNetworkInterfaceV3(std::string protocol);
 
 	// Transmit data over the NMEA 0183 connection
 	void SendNMEA0183(wxString sentence);

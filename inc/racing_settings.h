@@ -30,16 +30,7 @@
 // Note wxFormBuilder was used to generate the UI
 #include "racing_settingsbase.h"
 
-// Globally defined setting controlled by this dialog
-
-extern bool showStartline;
-extern bool showLayLines;
-extern bool showWindAngles;
-extern bool showMultiCanvas;
-extern int tackingAngle;
-extern int defaultTimerValue;
-extern bool generatePGN130306;
-extern bool generateMWVSentence;
+#include "racing_globals.h"
 
 class RacingSettings : public RacingSettingsBase {
 	

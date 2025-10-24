@@ -30,14 +30,6 @@
 // Note wxFormBuilder was used to generate the UI
 #include "racing_toolboxbase.h"
 
-// Some configuration settings
-extern bool showStartline;
-extern bool showLayLines;
-extern bool showWindAngles;
-extern bool showMultiCanvas;
-extern int tackingAngle;
-extern int defaultTimerValue;
-
 class RacingToolbox : public RacingToolboxBase {
 	
 public:

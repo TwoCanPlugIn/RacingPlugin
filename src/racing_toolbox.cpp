@@ -27,6 +27,8 @@
 
 #include "racing_toolbox.h"
 
+#include "racing_globals.h"
+
 // Constructor and destructor implementation
 RacingToolbox::RacingToolbox( wxWindow* parent) : RacingToolboxBase(parent) {
 	spinCountdownTimer->SetValue(defaultTimerValue / 60);

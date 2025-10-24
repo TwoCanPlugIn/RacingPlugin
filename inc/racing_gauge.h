@@ -46,8 +46,8 @@ public:
 	void SetCOG(double cog);
 	void SetSOG(double sog);
 	void SetVMG(double vmg);
-	void SetDriftSpeed(double driftSpeed);
-	void SetDriftAngle(double driftAngle);
+	void SetDriftSpeed(double driftAngle);
+	void SetDriftAngle(double driftSpeed);
 	void ShowBearing(bool show);
 	void SetNightMode(bool mode);
 
@@ -73,8 +73,8 @@ private:
 	double waterDepth = 0.0f;
 	double courseOverGround = 0.0f;
 	double speedOverGround = 0.0f;
-	double driftAngle = 0.0f;
 	double driftSpeed = 0.0f;
+	double driftAngle = 0.0f;
 	double velocityMadeGood;
 	bool nightMode = false;
 	bool displayBearingToWaypoint = false;

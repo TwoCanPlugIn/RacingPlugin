@@ -64,6 +64,9 @@
 // Strings
 #include <wx/string.h>
 
+// Get Special Folders
+#include <wx/stdpaths.h>
+
 // Notifications 
 // Not to be confused with OpenCPN notifications
 #include <wx/notifmsg.h>
@@ -77,10 +80,15 @@
 
 // Race Start Dialog
 #include "racing_dialog.h"
+
+// An alternative to the above
 #include "racing_window.h"
 
 // Plugin Settings dialog
 #include "racing_settings.h"
+
+// Visual Studio style preferences
+#include "racing_options.h"
 
 // Plugin Toolbox dialog
 #include "racing_toolbox.h"
@@ -88,76 +96,26 @@
 // "Wind Wizard" gauge, similar to B&G SailSteer
 #include "racing_gauge.h"
 
+// Replay candump log files
+#include "racing_replay.h"
+
 // OpenCPN Device Context Abstraction Layer
 #include "racing_graphics.h"
 
-// Plugin receives events from the Countdown Timer dialog
-const wxEventType wxEVT_RACE_DIALOG_EVENT = wxNewEventType();
-const int RACE_DIALOG_CLOSED = wxID_HIGHEST + 1;
-const int RACE_DIALOG_PORT = wxID_HIGHEST + 2;
-const int RACE_DIALOG_STBD = wxID_HIGHEST + 3;
-const int WINDWIZARD_MENU = wxID_HIGHEST + 4;
-const int ALERT_MENU = wxID_HIGHEST + 5;
-const int DSC_MENU = wxID_HIGHEST + 6;
-const int RTE_MENU = wxID_HIGHEST + 7;
-
-// Globally accessible variables used by the plugin, dialogs etc.
-
-// Note speed, distance values are stored using OpenCPN defaut units,
-// but should always be displayed in the user's chosen units
-double currentLatitude = 0.0f;
-double currentLongitude = 0.0f;
-double courseOverGround = 0.0f;
-double speedOverGround = 0.0f;
-double headingTrue = 0.0f;
-double headingMagnetic = 0.0f;
-double boatSpeed = 0.0f;
-double waterDepth = 0.0f;
-double apparentWindSpeed = 0.0f;
-double apparentWindAngle = 0.0f;
-double trueWindDirection = 0.0f;
-double trueWindAngle = 0.0f;
-double trueWindSpeed = 0.0f;
-double driftSpeed = 0.0f;
-double driftAngle = 0.0f;
-
-// Protect simultaneous read & write access to latitude and longitude
-wxMutex lockPositionFix;
-
-// Countdown timer dialog shown/hidden state
-bool isCountdownTimerVisible;
-
-// "Wind Wizard" gauge shown/hidden state
-bool isWindWizardVisible = false;
-
-// Bitmap used for both the plugin and dialogs
-wxBitmap pluginBitmap;
-
-// Some configuration settings
-// If we draw the start line on the screen
-bool showStartline;
-// Not currently implemented
-bool showLayLines;
-// If we draw an arrow indicating apparent wind angle on the screen
-bool showWindAngles;
-// If we draw only on one canvas or on both when in multi canvas mode
-bool showMultiCanvas;
-// If we calculate true wind angle and speed and transmit the NMEA 2000 Message
-bool generatePGN130306;
-// If we calculate true wind angle and speed and transmit the NMEA MWV Sentence
-bool generateMWVSentence;
-// Not currently implemented
-int tackingAngle;
-// Default value for the Countdown timer interval
-int defaultTimerValue;
+// Globally defined variables used by plugin, dialogs etc.
+#include "racing_globals.h"
 
 // The Racing plugin
-#if (OCPN_API_VERSION_MINOR == 18)
+#if (OCPN_API_VERSION_MINOR == 17)
+class RacingPlugin : public opencpn_plugin_117, public wxEvtHandler {
+#elif (OCPN_API_VERSION_MINOR == 18)
 class RacingPlugin : public opencpn_plugin_118, public wxEvtHandler {
 #elif (OCPN_API_VERSION_MINOR == 19)
-	class RacingPlugin : public opencpn_plugin_119, public wxEvtHandler {
-#elif (OCPN_API_VERSION_MINOR >= 20)
+class RacingPlugin : public opencpn_plugin_119, public wxEvtHandler {
+#elif (OCPN_API_VERSION_MINOR == 20)
 class RacingPlugin : public opencpn_plugin_120, public wxEvtHandler {
+#elif (OCPN_API_VERSION_MINOR == 21)
+class RacingPlugin : public opencpn_plugin_121, public wxEvtHandler {
 #endif
 
 public:
@@ -226,20 +184,34 @@ private:
 	// Countdown Timer displayed in a non-modal dialog
 	RacingWindow* racingWindow;
 
+	// Replay candump log file
+	Racing_Replay* replay;
+
 	// Reference to the OpenCPN window handle
 	wxWindow *parentWindow;
 	
 	// Reference to OpenCPN AUI Manager
 	wxAuiManager* auiManager;
 
-	// Toolbar id
+	// Toolbar Id's
 	int racingToolbarId;
+	int playLogFileToolbarId;
+	int stopLogFileToolbarId;
 
 	// Context Menu id's
 	int racingContextMenuId;
 	int alertContextMenuId;
 	int dscContextMenuId;
 	int rteContextMenuId;
+	int wptContextMenuId;
+	int playbackContextMenuId;
+
+	// When the route context menu is displayed, show/hide waypoint names
+	bool toggleWaypointNames = false;
+
+	// Toolbar bitmaps
+	wxBitmap playLogFile;
+	wxBitmap stopLogFile;
 
 	// "Wind Wizard" gauge
 	WindWizard* windWizard;
@@ -252,6 +224,12 @@ private:
 
 	// Plugin Preferences dialog
 	RacingSettings* racingSettings;
+
+	// Testing a new style of prefeences
+	RacingOptions* racingOptions;
+
+	// The interface for the OpenCPN loopback connection
+	DriverHandle loopbackHandle;
 
 	// The interface for a NMEA 2000 connection
 	DriverHandle n2kNetworkHandle;

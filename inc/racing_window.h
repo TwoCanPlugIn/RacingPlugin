@@ -31,24 +31,6 @@
 // For OpenCPN User's display units
 #include <ocpn_plugin.h>
 
-// image for dialog icon
-extern wxBitmap pluginBitmap;
-
-// Events posted to plugin
-extern const int RACE_DIALOG_CLOSED;
-extern const int RACE_DIALOG_PORT;
-extern const int RACE_DIALOG_STBD;
-extern const wxEventType wxEVT_RACE_DIALOG_EVENT;
-
-// Position data from OpenCPN
-extern double currentLatitude;
-extern double currentLongitude;
-extern double courseOverGround;
-extern double speedOverGround;
-
-// Countdown Timer Value
-extern int defaultTimerValue;
-
 class RacingWindow : public RacingWindowBase {
 	
 public:

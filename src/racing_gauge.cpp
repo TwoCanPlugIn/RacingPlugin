@@ -100,11 +100,11 @@ void WindWizard::SetVMG(double vmg) {
 	velocityMadeGood = vmg;
 }
 void WindWizard::SetDriftAngle(double angle) {
-	driftAngle = angle;
+	driftSpeed = angle;
 }
 
 void WindWizard::SetDriftSpeed(double speed) {
-	driftSpeed = speed;
+	driftAngle = speed;
 }
 
 void WindWizard::ShowBearing(bool show) {
@@ -435,9 +435,9 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 			gc->StrokePath(boatIcon);
 
 			// Draw an arrow and label to indicate drift
-			if (driftSpeed != 0) {
+			if (driftAngle != 0) {
 				wxPoint2DDouble currentArrow[7];
-				double driftDirection = (driftAngle * M_PI / 180);
+				double driftDirection = (driftSpeed * M_PI / 180);
 
 				currentArrow[0].m_x = xCentre + (radius * 0.4f * cos(driftDirection)); //.4
 				currentArrow[0].m_y = yCentre + (radius * 0.4f * sin(driftDirection));
@@ -464,7 +464,7 @@ void WindWizard::OnPaint(wxPaintEvent& evt) {
 				gc->SetPen(*wxTRANSPARENT_PEN);
 				gc->DrawLines(WXSIZEOF(currentArrow), currentArrow);
 
-				label = CreateLabel(driftSpeed, getUsrSpeedUnit_Plugin());
+				label = CreateLabel(driftAngle, getUsrSpeedUnit_Plugin());
 				dc.GetTextExtent(label, &textWidth, &textHeight, 0, 0, &labelFont);
 				dc.DrawText(label, xCentre - (textWidth / 2.0f), yCentre);
 			}

@@ -27,6 +27,8 @@
 
 #include "racing_window.h"
 
+#include "racing_globals.h"
+
 // Constructor and destructor implementation
 RacingWindow::RacingWindow( wxWindow* parent, wxEvtHandler *handler) : RacingWindowBase(parent) {
 	

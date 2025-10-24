@@ -67,13 +67,13 @@ set(PACKAGE "Racing_Plugin") # This is the resultant dll Racing_Plugin_pi and Vi
 set(SHORT_DESCRIPTION "Racing Plugin, A simple tool for yacht racing")
 set(LONG_DESCRIPTION "Racing Plugun, A simple tool for yacht racing, Displays countdown timer, distance and time to start line") 
 set(VERSION_MAJOR "1")
-set(VERSION_MINOR "4")
+set(VERSION_MINOR "5")
 set(VERSION_PATCH "0")
 set(VERSION_TWEAK "0")
-set(VERSION_DATE "15/06/2025")
+set(VERSION_DATE "20/10/2025")
 set(OCPN_MIN_VERSION "ov50")
 set(OCPN_API_VERSION_MAJOR "1")
-set(OCPN_API_VERSION_MINOR "20")
+set(OCPN_API_VERSION_MINOR "21")
 set(TP_COMMENT "Release for O5 using CI")
 
 set(PARENT "opencpn")
@@ -164,21 +164,33 @@ add_definitions(-DUSE_S57)
 
 SET(SOURCES src/racing_plugin.cpp
             src/racing_gauge.cpp
+            src/racing_globals.cpp
             src/racing_window.cpp
             src/racing_windowbase.cpp
+            src/racing_options.cpp
+            src/racing_optionsbase.cpp
+            src/racing_optionpages.cpp
             src/racing_settings.cpp
             src/racing_settingsbase.cpp
             src/racing_toolbox.cpp
-            src/racing_toolboxbase.cpp)
+            src/racing_toolboxbase.cpp
+            src/racing_replay.cpp
+)
 SET(HEADERS inc/racing_plugin.h
             inc/racing_gauge.h
+            inc/racing_globals.h
             inc/racing_graphics.h
             inc/racing_window.h
             inc/racing_windowbase.h
+            inc/racing_options.h
+            inc/racing_optionsbase.h
+            inc/racing_optionpages.h
             inc/racing_settings.h
             inc/racing_settingsbase.h
             inc/racing_toolbox.h
-            inc/racing_toolboxbase.h)
+            inc/racing_toolboxbase.h
+            inc/racing_replay.h
+)
 
 add_definitions(-DPLUGIN_USE_SVG)
 

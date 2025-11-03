@@ -104,7 +104,7 @@ void RacingOptions::OnSearch(wxCommandEvent& event) {
 	m["nmea0183"] = network.GetID();
 	m["nmea2000"] = network.GetID();
 
-	// Find the serch term and load the appropriate panel of settings
+	// Find the search term and load the appropriate panel of settings
 	std::map<std::string, wxTreeItemId>::iterator it = m.find(event.GetString().ToStdString());
 	if (it != m.end()) {
 		treeOptions->SelectItem(it->second, true);

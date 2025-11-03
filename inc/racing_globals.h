@@ -73,6 +73,6 @@ extern wxEventType wxEVT_RACE_DIALOG_EVENT;
 #define ALERT_MENU  wxID_HIGHEST + 5
 #define DSC_MENU  wxID_HIGHEST + 6
 #define RTE_MENU  wxID_HIGHEST + 7
-#define PLAYBACK_MENU wxID_HIGHEST + 8
+#define TEST_MENU wxID_HIGHEST + 8
 
 #endif

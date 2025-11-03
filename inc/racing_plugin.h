@@ -167,7 +167,7 @@ public:
 	void PreShutdownHook();
 #endif
 	// Only supported in API 1.20
-#if (OCPN_API_VERSION_MINOR >= 20)
+#if (OCPN_API_VERSION_MINOR >= 21)
 	void OnContextMenuItemCallbackExt(int id, std::string obj_ident, std::string obj_type, double lat, double lon);
 #endif
 
@@ -204,7 +204,7 @@ private:
 	int dscContextMenuId;
 	int rteContextMenuId;
 	int wptContextMenuId;
-	int playbackContextMenuId;
+	int testContextMenuId;
 
 	// When the route context menu is displayed, show/hide waypoint names
 	bool toggleWaypointNames = false;

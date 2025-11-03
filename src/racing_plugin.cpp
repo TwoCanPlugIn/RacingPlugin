@@ -1,3 +1,5 @@
+// https://stackoverflow.com/questions/65374455/wxthreaddelete-hangs-forever
+
 // Copyright(C) 2018-2025 by Steven Adler
 //
 // This file is part of Racing plugin for OpenCPN.
@@ -35,6 +37,13 @@
 #include "racing_plugin.h"
 
 #include <wx/window.h>
+
+#include <wx/bitmap.h>
+#include <wx/rawbmp.h>
+
+
+#include <wx/msw/bitmap.h>
+
 
 // Debug spew via UDP
 wxDatagramSocket* debugSocket;
@@ -141,6 +150,7 @@ RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_118(ppimgr), wxEvtHand
 	racingWindow = nullptr;
 	racingToolbox = nullptr;
 	racingSettings = nullptr;
+	replay = nullptr;
 
 	// Initialize the plugin bitmap
 	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + "data" + wxFileName::GetPathSeparator();
@@ -154,7 +164,7 @@ RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_118(ppimgr), wxEvtHand
 	debugSocket = new wxDatagramSocket(addrLocal, wxSOCKET_NONE);
 
 	if (!debugSocket->IsOk()) {
-		wxLogMessage(_T("ERROR: failed to create UDP peer socket"));
+		wxLogMessage(_T("Racing Plugin, Error, failed to create UDP peer socket"));
 	}
 }
 
@@ -242,11 +252,11 @@ int RacingPlugin::Init(void) {
 	playLogFileToolbarId = InsertPlugInToolSVG("Play", normalIcon,
 		rolloverIcon, toggledIcon, wxITEM_CHECK, "Play", "Play Candump Log File", NULL, -1, 0, this);
 
+	// Log File Stop ToolbarId
 	normalIcon = pluginFolder + "vdr_stop.svg";
 	toggledIcon = pluginFolder + "vdr_stop_toggled.svg";
 	rolloverIcon = pluginFolder + "vdr_stop_rollover.svg";
 
-	// Log File Stop ToolbarId
 	stopLogFileToolbarId = InsertPlugInToolSVG("Stop", normalIcon,
 		rolloverIcon, toggledIcon, wxITEM_CHECK, "Stop", "Stop Playing Log File", NULL, -1, 0, this);
 
@@ -262,9 +272,9 @@ int RacingPlugin::Init(void) {
 	wxMenuItem* alertMenu = new wxMenuItem(NULL, ALERT_MENU, "Raise Alert", "OCPN Notifications", wxITEM_NORMAL, NULL);
 	alertContextMenuId = AddCanvasContextMenuItem(alertMenu, this);
 
-	// This menu enables replay of candump files using the "new" loopback driver
-	wxMenuItem* playbackMenu = new wxMenuItem(NULL, PLAYBACK_MENU, "Replay candump log", "OCPN Notifications", wxITEM_NORMAL, NULL);
-	playbackContextMenuId = AddCanvasContextMenuItem(playbackMenu, this);
+	// This menu is used to test different things
+	wxMenuItem* playbackMenu = new wxMenuItem(NULL, TEST_MENU, "Test", "Adhoc Testing", wxITEM_NORMAL, NULL);
+	testContextMenuId = AddCanvasContextMenuItem(playbackMenu, this);
 
 #if (OCPN_API_VERSION_MINOR >= 20)
 	// Valid Sub Menu Names "Route", " Waypoint", "Track", "AIS")
@@ -415,7 +425,17 @@ bool RacingPlugin::DeInit(void) {
 	if (oneSecondTimer->IsRunning()) {
 		oneSecondTimer->Stop();
 	}
+
 	oneSecondTimer->Disconnect(wxEVT_TIMER, wxTimerEventHandler(RacingPlugin::OnTimerElapsed), NULL, this);
+
+
+	// if replaying a log file, cleanup
+	if (replay != nullptr) {
+		if (replay->IsRunning()) {
+			wxThread::ExitCode exitCode;
+			replay->Delete(&exitCode, wxTHREAD_WAIT_BLOCK);
+		}
+	}
 
 	// Disconnect the Advanced User Interface manager
 	auiManager->DetachPane(windWizard);
@@ -653,27 +673,46 @@ void RacingPlugin::OnToolbarToolCallback(int id) {
 	else if (id == playLogFileToolbarId) {
 		// Create a file open dialog, and replay a candump file using the loopback driver
 		wxString fileName;
-		wxFileDialog fileOpen(parentWindow, "Replay Candump log",
-			wxStandardPaths::Get().GetDocumentsDir(),
-			fileName, "Candump Log files (*.log)|*.log|Comma Separated files (*.csv)|*.csv|Text files (*.txt)|*.txt",
-			wxFD_OPEN | wxFD_FILE_MUST_EXIST, wxDefaultPosition, wxDefaultSize);
 
-		if (fileOpen.ShowModal() == wxID_OK) {
+		wxFileDialog fileOpenDialog;
+		fileOpenDialog.SetDirectory(wxStandardPaths::Get().GetDocumentsDir());
+		fileOpenDialog.SetMessage("Open Log File");
+		fileOpenDialog.SetPosition(wxDefaultPosition);
+		fileOpenDialog.SetSize(wxSize(300, 300));
+		fileOpenDialog.SetExtraStyle(wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+		fileOpenDialog.SetWildcard("Candump Log files (*.log)|*.log|Comma Separated files (*.csv)|*.csv|Text files (*.txt)|*.txt");
+		fileOpenDialog.EnableFullScreenView(false);
+
+		
+		if (fileOpenDialog.ShowModal() == wxID_OK) {
 			wxMessageBox(wxString::Format("Path: %s\nDirectory: %s\nName: %s",
-				fileOpen.GetPath(),
-				fileOpen.GetDirectory(),
-				fileOpen.GetFilename()));
+				fileOpenDialog.GetPath(),
+				fileOpenDialog.GetDirectory(),
+				fileOpenDialog.GetFilename()));
 
 		}
 
-		auto filePath = fileOpen.GetPath();
-		// BUG BUG Finish work on the candump replay class
-		//replay = new Racing_Replay(parentWindow, loopbackHandle);
+		auto filePath = fileOpenDialog.GetPath();
+
+		if (filePath.Length() > 0) {
+			// BUG BUG Finish work on the candump replay class
+			replay = new Racing_Replay(loopbackHandle, filePath);
+
+			replay->Run();
+
+		}
+
 
 	}
 
 	else if (id == stopLogFileToolbarId) {
-		//replay->Stop();
+
+		// Toggle the play button
+		SetToolbarItemState(playLogFileToolbarId, false);
+		if (replay->IsRunning()) {
+			wxThread::ExitCode exitCode;
+			replay->Delete(&exitCode, wxTHREAD_WAIT_BLOCK);
+		}
 	}
 }
 
@@ -688,28 +727,98 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 		auiManager->Update();
 	}
 
-	else if (id == playbackContextMenuId) {
-		// Create a file open dialog, and replay a candump file using the loopback driver
-		wxString fileName;
-		wxFileDialog fileOpen(parentWindow, "Replay Candump log", 
-			wxStandardPaths::Get().GetDocumentsDir(),
-			fileName, "Candump Log files (*.log)|*.log|Comma Separated files (*.csv)|*.csv|Text files (*.txt)|*.txt",
-			wxFD_OPEN | wxFD_FILE_MUST_EXIST, wxDefaultPosition, wxDefaultSize);
+	else if (id == testContextMenuId) {
 
-		if (fileOpen.ShowModal() == wxID_OK) {
-		wxMessageBox(wxString::Format("Path: %s\nDirectory: %s\nName: %s", 
-			fileOpen.GetPath(),
-			fileOpen.GetDirectory(),
-			fileOpen.GetFilename()));
-		
+		wxArrayString iconNames = GetIconNameArray();
+
+		wxString icons;
+		for (auto it : iconNames) {
+			icons += it;
+			icons += "\n";
+
 		}
+		wxMessageBox(icons,	"Icon Names");
 
-		auto filePath = fileOpen.GetPath();
 
-		//Racing_Replay* replay = new Racing_Replay(parentWindow, loopbackHandle);
+		auto p = std::find(iconNames.begin(), iconNames.end(), "mob"); //"1st-Active-Waypoint");
+		if (p != iconNames.end()) {
+			wxMessageBox(wxString::Format("Found Icon: %s", p->data()));
+			wxBitmap markBitmap = GetIcon_PlugIn(p->data());
+			markBitmap.SaveFile(wxString::Format("d:\\logs\\%s.bmp", p->data()), 
+				wxBitmapType::wxBITMAP_TYPE_BMP);
+			wxMessageBox(wxString::Format("Bitmap is %s, Width: %d, Height: %d", 
+				markBitmap.IsOk() ? "OK" : "Not OK",
+				markBitmap.GetWidth(),
+				markBitmap.GetHeight()));	
 
-		InitializeNetwork();
-	
+			
+			//markBitmap.LoadFile("D:\\Code\\wxWidgets\\samples\\image\\horse.bmp",wxBITMAP_TYPE_BMP);
+			//wxMessageBox(wxString::Format("Horse Bitmap is %s, Width: %d, Height: %d",
+			//	markBitmap.IsOk() ? "OK" : "Not OK",
+			//	markBitmap.GetWidth(),
+			//	markBitmap.GetHeight()));
+
+			
+			wxNativePixelData data(markBitmap);
+
+			if (!data) {
+				wxMessageBox("No Native Pixel Data", "Native Pixel");
+			}
+			else {
+				wxMessageBox(wxString::Format("Native Pixel Data\nHeight: %d, Width %d", data.GetHeight(),
+					data.GetWidth()), 
+					"Native Pixel");
+			}
+
+			wxNativePixelData::Iterator it(data);
+			bool NonZero = true;
+			wxString pixelString;
+			for (int y = 0; y < data.GetHeight(); ++y) {
+				wxNativePixelData::Iterator rowStart = it;
+
+				for (int x = 0; x < data.GetWidth(); ++x, ++it) {
+
+					pixelString += wxString::Format("%d, %d: %d %d %d\n",
+						y, x, it.Red(), it.Green(), it.Blue());
+
+					if ((it.Red() != 0) || (it.Green() !=0 ) || (it.Blue() != 0)) {
+						NonZero = false;
+					}
+				}
+
+				it = rowStart;
+				it.OffsetY(data, 1);
+			}
+
+			wxMessageBox(pixelString, "Native Pixel Data");
+
+
+			wxMessageBox(wxString::Format("BitMap is %s", NonZero ? "Dummy Bitmap" : "Really Valid", "Native Pixel Data"));
+
+
+			// Convert To Image
+
+			wxImage markImage = markBitmap.ConvertToImage();
+
+			
+			unsigned char* ptr = markImage.GetData();
+			bool validImage = false;
+			for (int h = 0; h < markImage.GetHeight(); h++) {
+				for (int w = 0; w < markImage.GetWidth(); w++) {
+					if (*ptr != 0) {
+						validImage = true;
+					}
+					ptr++;
+				}
+				ptr++;
+			}
+
+			wxMessageBox(wxString::Format("Image is %s", validImage ? "Valid" : "Invalid"), "Image Data");
+
+		}
+		else {
+			wxMessageBox("Icon Not found");
+		}
 	}
 
 	// Raise an OpenCPN Alert (different to a platform OS notification)
@@ -752,7 +861,7 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 	}
 }
 
-#if (OCPN_API_VERSION_MINOR >= 20)
+#if (OCPN_API_VERSION_MINOR >= 21)
 // Context MenuItems that may be added to AIS, Routes, Tracks and Waypoints context menu sub-items
 void RacingPlugin::OnContextMenuItemCallbackExt(int id, std::string obj_ident, std::string obj_type, double lat, double lon) {
 
@@ -769,7 +878,6 @@ void RacingPlugin::OnContextMenuItemCallbackExt(int id, std::string obj_ident, s
 		toggleWaypointNames = !toggleWaypointNames;
 		ShowRouteWaypointNames(obj_ident, toggleWaypointNames);
 	}
-
 	// Handle the Context Menu call back if the object was a Route
 	else if (id == rteContextMenuId) {
 
@@ -845,7 +953,7 @@ void RacingPlugin::SetDefaults(void) {
 
 // Add our own tab on the OpenCPN toolbox, under the "User" settings. Ordinarily plugins 
 // would add their own settings dialog launched using the ShowPreferencesDialog method
-// OnSetupOptions seems to be invoked at Startup. 
+// OnSetupOptions seems to be invoked at Startup. In 5.13 is it broken ?
 void RacingPlugin::OnSetupOptions(void) {
 
 	// Get a handle to our options page window, add a sizer to it, to which we will add our toolbox panel
@@ -895,7 +1003,6 @@ void RacingPlugin::ShowPreferencesDialog(wxWindow* parent) {
 	//}
 	//delete racingSettings;
 
-
 	// BUG BUG Testing new settings UI design
 	racingOptions = new RacingOptions(parent,wxID_ANY, "Settings" , parent->FromDIP(wxSize(500, 400)));
 	if (wxID_OK == racingOptions->ShowModal()) {
@@ -927,6 +1034,7 @@ bool RacingPlugin::RenderOverlayMultiCanvas(wxDC& dc, PlugIn_ViewPort* vp,
 
 		if (dc.IsOk()) {
 
+			
 			if ((canvasIndex == 0) || ((canvasIndex == 1) && (showMultiCanvas))) {
 
 				if (showStartline) {
@@ -1298,7 +1406,7 @@ void RacingPlugin::HandleN2K_128259(ObservedEvt ev) {
 void RacingPlugin::HandleN2K_128267(ObservedEvt ev) {
 
 	NMEA2000Id id = ev.GetId();
-	wxLogMessage(wxString::Format("NMEA 2000 PGN 128267 Id: %d", id.id));
+	wxLogMessage(wxString::Format("Racing Plugin, NMEA 2000 PGN 128267 Id: %d", id.id));
 
 	NMEA2000Id id_128267(128267);
 	std::vector<uint8_t> payload = GetN2000Payload(id_128267, ev);
@@ -1589,7 +1697,7 @@ void RacingPlugin::GenerateTrueWindMessage(void) {
 		std::vector<uint8_t> payload(N2kMsg.Data, N2kMsg.Data + N2kMsg.GetAvailableDataLength());
 		auto sharedPointer = std::make_shared<std::vector<uint8_t>>(payload);
 		result = WriteCommDriverN2K(n2kNetworkHandle, 130306, 255, 5, sharedPointer);
-		wxLogMessage(_T("Racing Plugin, Debug, Send NMEA 2000 %s: %d"), n2kNetworkHandle.c_str(), result);
+		wxLogMessage(_T("Racing Plugin, Debug, Send NMEA 2000 PGN 130306, %s: %d"), n2kNetworkHandle.c_str(), result);
 	}
 }
 

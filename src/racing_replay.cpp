@@ -18,16 +18,16 @@
 
 //
 // Project: Racing Plugin
-// Description: Replay candump logfile, converting to "Actisense Raw" 
+// Description: Replay candump logfile, converting to "Actisense Raw" format for loopback driver 
 // and transmit via loopback
 // Owner: twocanplugin@hotmail.com
 // Date: 10/10/2025
 
 #include "racing_replay.h"
 
-Racing_Replay::Racing_Replay(wxWindow* parent, DriverHandle driver) {
-	parentWindow = parent;
+Racing_Replay::Racing_Replay( DriverHandle driver, wxString fileName) : wxThread(wxTHREAD_DETACHED) {
 	commsInterface = driver;
+	logFile = fileName;
 }
 
 Racing_Replay::~Racing_Replay() {
@@ -258,8 +258,40 @@ int Racing_Replay::MapGarbageCollector(void) {
 	return staleEntries;
 }
 
+wxThread::ExitCode Racing_Replay::Entry() {
+	Play();
+	return ExitCode(0);
+}
+
+void Racing_Replay::OnExit() {
+	logFileStream.close();
+}
+
 void Racing_Replay::ProcessData(CanHeader header, std::vector<unsigned char> payload, int payload_Length) {
 	
+	// Write to the loopback adapter
+		// NMEA 0183 works
+		//std::string sentence = "nmea0183 COM5 WIMWV $WIMWV,295.6,R,007.2,N,A*2E";
+
+		// This is the "bastardised" output from VDR plugin, not sure what they are thinking...
+		//std::string sentence = "$PCDIN,130306,93130402FD01FF020000000008580202FE4AFAFFFFB1";
+
+		// This the correct format for Chetco Seasmart, although not supported by the loopback driver 
+		//std::string sentence = "$PCDIN,01FD02,000C8472,09,04C300487FF8FFFF*55";
+
+		// This format works (and is documented somewhere)!
+		//std::string sentence = "NMEA2000 COM5 130306 93 13 02 02 fd 01 ff 03 ff ff ff ff 08 24 cf 01 fe 4a fa ff ff 55";
+
+		// This is the output from the Data Monitor but this format doesn't work
+		//std::string sentence = "1760484669972,NMEA2000,COM5,130306,93 13 04 02 fd 01 ff 02 00 00 00 00 08 24 cf 01 fe 4a fa ff ff 55";
+
+		// This is the CSV output from Data Monitor, also doesn't work
+		//std::string sentence = "2025-10-15T01:11:07.765Z,NMEA2000,130306,93130402FD01FF0200000000081824cf01fe4afaffff";
+
+		// This is from the spec, although it is the "wrong" spec, and doesn't work
+		//std::string sentence = "2024-02-16T10:00:00.234Z,NMEA2000,130306,CAN0,15FD020A24cf01fe4afaffff ";
+
+
 	std::stringstream stream;
 	
 	stream << "NMEA2000 COM5 ";
@@ -285,17 +317,14 @@ void Racing_Replay::ProcessData(CanHeader header, std::vector<unsigned char> pay
 		stream << std::setfill('0') << std::setw(2) << std::hex << (int)it;
 		stream << " ";
 	}
-	stream << "55"; //dummy checksum
+	stream << "55"; //dummy checksum.
 
 	std::string sentence(stream.str());
 
 	CommDriverResult result;
+
 	auto sharedPointer = std::make_shared<std::vector<unsigned char>>(sentence.begin(), sentence.end());
 	result = WriteCommDriver(commsInterface, sharedPointer);
-	wxLogMessage(_T("Racing Plugin, Debug.\nPGN: %d\nPriority: %d\nSource: %02X\nDestination: %02X"),
-		header.pgn, header.priority, header.source, header.destination);
-	wxLogMessage(_T("Racing Plugin, Debug, Send Loopback. Interface: %s\nPayload: %s\nResult: %d"),
-		commsInterface.c_str(), sentence, result);
 }
 
 // Decodes a 29 bit CAN header
@@ -329,7 +358,7 @@ bool Racing_Replay::ConvertHexStringToByteArray(const unsigned char* hexstr, con
 	}
 }
 
-
+// Could probably replace this with std::chrono
 unsigned long long Racing_Replay::GetTimeInMicroseconds() {
 #ifdef __linux__
 	struct timeval currentTime;
@@ -347,54 +376,68 @@ unsigned long long Racing_Replay::GetTimeInMicroseconds() {
 #endif
 }
 
-void Racing_Replay::Play(wxString fileName) {
+void Racing_Replay::Play() {
 
 	// (1542794024.860693) can0 1CFF1906#419F010B00000000
-	const std::regex candump("^\\([0-9]+.[0-9]+\\)\\s(slcan|vcan|can)[0-9]\\s([0-9A-F]{8})#([0-9A-F]{16})$");
+	const std::regex candump("^\\(([0-9]+.[0-9]+)\\)\\s(slcan|vcan|can)[0-9]\\s([0-9A-F]{8})#([0-9A-F]{16})$");
 
 	std::smatch match;
+
+	double startTime = 0.0f;
+	double endTime = 0.0f;
 
 	std::vector<unsigned char> frame;
 	CanHeader header;
 
-	std::fstream logFileStream;
 	std::string inputLine;
 
-	logFileStream.open(fileName.ToStdString(), std::ios::in);
+	logFileStream.open(logFile.ToStdString(), std::ios::in);
 
-	isPlaying = true;
+	while (!logFileStream.eof()) {
 
-	while (isPlaying) {
+		if (TestDestroy()) {
+			break;
+		}
 
-		while (!logFileStream.eof()) {
+		getline(logFileStream, inputLine);
 
-			getline(logFileStream, inputLine);
+		if (std::regex_match(inputLine, match, candump)) {
 
-			if (std::regex_match(inputLine, match, candump)) {
+			endTime = atof(match[1].str().c_str());
 
-				// Decode the Can header
-				unsigned long temp = std::strtoul(match[2].str().c_str(), NULL, 16);
-				unsigned char buf[4];
-				buf[3] = (temp >> 24) & 0xFF;
-				buf[2] = (temp >> 16) & 0xFF;
-				buf[1] = (temp >> 8) & 0xFF;
-				buf[0] = temp & 0xFF;
-				header.source = buf[0];
-				header.destination = buf[2] < 240 ? buf[1] : CONST_GLOBAL_ADDRESS;
-				header.pgn = (buf[3] & 0x01) << 16 | (buf[2] << 8) | (buf[2] < 240 ? 0 : buf[1]);
-				header.priority = (buf[3] & 0x1c) >> 2;
+			if (startTime > 0.0f) {
 
-				// Decode the 8 byte payload
-				frame.clear();
-				ConvertHexStringToByteArray((const unsigned char*)match[3].str().c_str(), 8, &frame);
-				AssembleFastMessage(header, frame);
+				// Time stamp (1542794024.860693)
+				// Number of seconds: 1542794024
+				// Number of tenths of seconds 860693 with microsecond precision
+				// Some candump logs may have nanosecond precision....
+				// Convert to milliseconds
+				wxThread::Sleep(static_cast<unsigned int>(1000 * (endTime - startTime)));
+				
+				startTime = endTime;
+
+			}
+			else {
+				// First line, no need to wait...
+				startTime = endTime;
 			}
 
-			wxThread::Sleep(10);
+			// Decode the Can header
+			unsigned long temp = std::strtoul(match[3].str().c_str(), NULL, 16);
+			unsigned char buf[4];
+			buf[3] = (temp >> 24) & 0xFF;
+			buf[2] = (temp >> 16) & 0xFF;
+			buf[1] = (temp >> 8) & 0xFF;
+			buf[0] = temp & 0xFF;
+			header.source = buf[0];
+			header.destination = buf[2] < 240 ? buf[1] : CONST_GLOBAL_ADDRESS;
+			header.pgn = (buf[3] & 0x01) << 16 | (buf[2] << 8) | (buf[2] < 240 ? 0 : buf[1]);
+			header.priority = (buf[3] & 0x1c) >> 2;
+
+			// Decode the 8 byte payload
+			frame.clear();
+			ConvertHexStringToByteArray((const unsigned char*)match[4].str().c_str(), 8, &frame);
+			AssembleFastMessage(header, frame);
 		}
 	}
-}
-
-void Racing_Replay::Stop() {
-	isPlaying = false;
 }

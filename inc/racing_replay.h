@@ -29,6 +29,8 @@
 #include <wx/wx.h>
 #endif
 
+#include <wx/thread.h>
+
 #include <ocpn_plugin.h>
 // STL headers
 #include <iomanip> // fill, hex Io manipulation
@@ -37,7 +39,7 @@
 #include <sstream> // String Stream
 
 // NMEA 2000 stuff pinched from TwoCan plugin
-// Use this is parse candump logfiles and assemble NMEA 2000 Fast Messages
+// Use this to parse candump logfiles and assemble NMEA 2000 Fast Messages
 
 #define CONST_GLOBAL_ADDRESS 255
 #define CONST_HEADER_LENGTH 4
@@ -65,14 +67,14 @@ typedef struct FastMessageEntry {
 	std::vector<unsigned char> data; // pointer to memory allocated for the data. Note: must be freed when isFree is set to true.
 } FastMessageEntry;
 
-class Racing_Replay {
+class Racing_Replay : public wxThread {
 public:
-	Racing_Replay(wxWindow* parent, DriverHandle driver);
+	Racing_Replay(DriverHandle driver, wxString fileName);
 	virtual ~Racing_Replay();
-	void Play(wxString fileName);
-	void Stop();
 protected:
-
+	// wxThread overridden functions
+	virtual wxThread::ExitCode Entry() wxOVERRIDE;
+	virtual void OnExit() wxOVERRIDE;
 private:
 	bool IsFastMessage(const unsigned int pgn);
 	void AssembleFastMessage(const CanHeader header, std::vector<unsigned char> payload);
@@ -85,9 +87,15 @@ private:
 	int MapGarbageCollector(void);
 	bool ConvertHexStringToByteArray(const unsigned char* hexstr, const unsigned int len, std::vector<unsigned char>* data);
 	void ProcessData(CanHeader header, std::vector<byte> payload, int payload_Length);
-	wxWindow *parentWindow;
+	void Play();
+	
+	// The log file to be replayed
+	wxString logFile;
+	std::fstream logFileStream;
+	
 	// BUG BUG Contemplate std::vector
 	FastMessageEntry fastMessages[CONST_MAX_MESSAGES];
+	
 	// Get time, OS dependent
 	unsigned long long GetTimeInMicroseconds();
 
@@ -96,7 +104,5 @@ private:
 
 	// The OpenCPN network interface. For replaying stuff, it will be the loopback Interface
 	DriverHandle commsInterface;
-
-	bool isPlaying = false;
 };
 #endif

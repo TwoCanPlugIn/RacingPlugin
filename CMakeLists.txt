@@ -73,7 +73,7 @@ set(VERSION_TWEAK "0")
 set(VERSION_DATE "20/10/2025")
 set(OCPN_MIN_VERSION "ov50")
 set(OCPN_API_VERSION_MAJOR "1")
-set(OCPN_API_VERSION_MINOR "19")
+set(OCPN_API_VERSION_MINOR "20")
 set(TP_COMMENT "Release for O5 using CI")
 
 set(PARENT "opencpn")

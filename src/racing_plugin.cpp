@@ -362,35 +362,6 @@ int RacingPlugin::Init(void) {
 		});
 #endif
 
-	// Get handles for the different network interfaces
-	
-	// Retrieve the "new" loopback interface
-	// Supercedes PushNMEABuffer and also supports NMEA 2000 and SignalK as inputs
-	loopbackHandle = GetNetworkInterfaceV2("loopback");
-
-	// Retrieve a NMEA 2000 network interface which is used to transmit
-	// PGN 130306 with the calculated True Wind Angles and Speed.
-	// This is an example of writing to the NMEA 2000 Network
-	n2kNetworkHandle = GetNetworkInterfaceV2("nmea2000");
-
-	// Retrieve a NMEA 0183 network interface which is used to transmit
-	// MWV sentences with True Wind Angles and Speed.
-	// This is an example of writing to the NMEA 0183 Network
-	// in addition to PushNMEABuffer and to the loopback driver
-	n183NetworkHandle = GetNetworkInterfaceV2("nmea0183");
-
-	// Get an interface for internal OpenCPN messaging
-	// BUG BUG Not implemented ??
-	ocpnMessageHandle = GetNetworkInterfaceV2("internal");
-
-	// For the NMEA 2000 interface plugins need to register what NMEA 2000 PGN's they transmit.
-	// This is required for Actisense NGT-1 Adapters
-	// Presumably results in a null operation (NOP) for other NMEA 2000 adapters
-	if (!n2kNetworkHandle.empty()) {
-		std::vector<int> transmittedPGN = { 130306 };
-		RegisterTXPGNs(n2kNetworkHandle, transmittedPGN);
-	}
-
 	// Wire up the event handler to receive events from the Countdown Timer dialog
 	Connect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
 
@@ -429,6 +400,9 @@ void RacingPlugin::LateInit(void) {
 	oneSecondTimer = new wxTimer();
 	oneSecondTimer->Connect(wxEVT_TIMER, wxTimerEventHandler(RacingPlugin::OnTimerElapsed), NULL, this);
 	oneSecondTimer->Start(1000, wxTIMER_CONTINUOUS);
+
+	InitializeNetwork();
+
 }
 
 // OpenCPN is either closing down, or we have been disabled from the Preferences Dialog
@@ -732,9 +706,9 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 
 		auto filePath = fileOpen.GetPath();
 
-		fileOpen.Destroy();
-
 		//Racing_Replay* replay = new Racing_Replay(parentWindow, loopbackHandle);
+
+		InitializeNetwork();
 	
 	}
 
@@ -1683,7 +1657,7 @@ void RacingPlugin::OnTimerElapsed(wxTimerEvent& ev) {
 		//std::string sentence = "$PCDIN,01FD02,000C8472,09,04C300487FF8FFFF*55";
 
 		// This format works (and is documented somewhere)!
-		// std::string sentence = "NMEA2000 COM5 130306 93 13 02 02 fd 01 ff 03 ff ff ff ff 08 24 cf 01 fe 4a fa ff ff 55";
+		std::string sentence = "NMEA2000 COM5 130306 93 13 02 02 fd 01 ff 03 ff ff ff ff 08 24 cf 01 fe 4a fa ff ff 55";
 		
 		// This is the output from the Data Monitor but this format doesn't work
 		//std::string sentence = "1760484669972,NMEA2000,COM5,130306,93 13 04 02 fd 01 ff 02 00 00 00 00 08 24 cf 01 fe 4a fa ff ff 55";
@@ -1692,7 +1666,7 @@ void RacingPlugin::OnTimerElapsed(wxTimerEvent& ev) {
 		//std::string sentence = "2025-10-15T01:11:07.765Z,NMEA2000,130306,93130402FD01FF0200000000081824cf01fe4afaffff";
 
 		// This is from the spec, although it is the "wrong" spec, and doesn't work
-		std::string sentence = "2024-02-16T10:00:00.234Z,NMEA2000,130306,CAN0,15FD020A24cf01fe4afaffff ";
+		// std::string sentence = "2024-02-16T10:00:00.234Z,NMEA2000,130306,CAN0,15FD020A24cf01fe4afaffff ";
 		
 		CommDriverResult result;
 		auto sharedPointer = std::make_shared<std::vector<unsigned char>>(sentence.begin(), sentence.end());
@@ -1824,9 +1798,44 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
 	}
 }
 
+void RacingPlugin::InitializeNetwork() {
+
+	wxLogMessage("Racing Plugin, Initializing Network");
+
+	// Retrieve the "new" loopback interface
+	// Supercedes PushNMEABuffer and also supports NMEA 2000 and SignalK as inputs
+	loopbackHandle = GetNetworkInterfaceV2("loopback");
+
+	// Retrieve a NMEA 2000 network interface which is used to transmit
+	// PGN 130306 with the calculated True Wind Angles and Speed.
+	// This is an example of writing to the NMEA 2000 Network
+	n2kNetworkHandle = GetNetworkInterfaceV2("nmea2000");
+
+	// Retrieve a NMEA 0183 network interface which is used to transmit
+	// MWV sentences with True Wind Angles and Speed.
+	// This is an example of writing to the NMEA 0183 Network
+	// in addition to PushNMEABuffer and to the loopback driver
+	n183NetworkHandle = GetNetworkInterfaceV2("nmea0183");
+
+	// Get an interface for internal OpenCPN messaging
+	// BUG BUG Not implemented ??
+	ocpnMessageHandle = GetNetworkInterfaceV2("internal");
+
+	// For the NMEA 2000 interface plugins need to register what NMEA 2000 PGN's they transmit.
+	// This is required for Actisense NGT-1 Adapters
+	// Presumably results in a null operation (NOP) for other NMEA 2000 adapters
+	if (!n2kNetworkHandle.empty()) {
+		std::vector<int> transmittedPGN = { 130306 };
+		RegisterTXPGNs(n2kNetworkHandle, transmittedPGN);
+	}
+}
+
 // Retrieves the first interface for the selected protocol
 // Need to add a direction.
 DriverHandle RacingPlugin::GetNetworkInterfaceV2(std::string desiredProtocol) {
+	
+	wxLogMessage("Racing Plugin, Number of Active Drivers: %d", GetActiveDrivers().size());
+
 	for (const auto& driver : GetActiveDrivers()) {
 		const auto& attributes = GetAttributes(driver);
 		// If none of the std::map entries have a protocol attribute, do the next for loop iteration

@@ -237,10 +237,12 @@ private:
 	// The interface for NMEA 0183 connection
 	DriverHandle n183NetworkHandle;
 
+	void InitializeNetwork();
+
 	// The interface for OpenCPN Plugin Messaging
 	DriverHandle ocpnMessageHandle;
 
-	// Attempting to find teh "internal" driver.
+	// Attempting to find the "internal" driver.
 	void FindMessageDriver(std::string name);
 
 	// Returns the first interface for a requested protocol;

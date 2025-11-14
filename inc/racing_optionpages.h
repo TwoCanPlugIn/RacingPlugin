@@ -122,21 +122,19 @@ private:
 	wxCheckBox* checkStartLine;
 	wxCheckBox* checkLayline;
 	wxCheckBox* checkMultiCanvas;
+	wxCheckBox* checkAutopilot;
 	wxCheckBox* check1;
-
 	wxCheckBox* check2;
 	wxCheckBox* check3;
 	wxCheckBox* check4;
 	wxCheckBox* check5;
 	wxCheckBox* check6;
 
-
-
 	void OnWindAngleChanged(wxCommandEvent& event);
 	void OnStartlineChanged(wxCommandEvent& event);
 	void OnLaylineChanged(wxCommandEvent& event);
 	void OnCanvasChanged(wxCommandEvent& event);
-
+	void OnAutopilotChanged(wxCommandEvent& event);
 
 };
 

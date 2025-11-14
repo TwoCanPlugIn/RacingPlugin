@@ -65,6 +65,8 @@ bool showLayLines = false;
 bool showWindAngles = false;
 // If we draw only on one canvas or on both when in multi canvas mode
 bool showMultiCanvas = false;
+// If we override the core Active Route vonsole with our own Autopilot Display
+bool showAutopilot = false;
 // If we calculate true wind angle and speed and transmit the NMEA 2000 Message
 bool generatePGN130306 = false;
 // If we calculate true wind angle and speed and transmit the NMEA MWV Sentence

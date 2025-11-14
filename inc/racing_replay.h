@@ -30,6 +30,7 @@
 #endif
 
 #include <wx/thread.h>
+#include <wx/filename.h>
 
 #include <ocpn_plugin.h>
 // STL headers
@@ -69,7 +70,7 @@ typedef struct FastMessageEntry {
 
 class Racing_Replay : public wxThread {
 public:
-	Racing_Replay(DriverHandle driver, wxString fileName);
+	Racing_Replay(DriverHandle driver, wxFileName fileName);
 	virtual ~Racing_Replay();
 protected:
 	// wxThread overridden functions
@@ -88,9 +89,11 @@ private:
 	bool ConvertHexStringToByteArray(const unsigned char* hexstr, const unsigned int len, std::vector<unsigned char>* data);
 	void ProcessData(CanHeader header, std::vector<byte> payload, int payload_Length);
 	void Play();
+	void PlayNMEA0183();
+	void PlayNMEA2000();
 	
 	// The log file to be replayed
-	wxString logFile;
+	wxFileName logFile;
 	std::fstream logFileStream;
 	
 	// BUG BUG Contemplate std::vector

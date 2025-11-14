@@ -48,6 +48,9 @@ MiscSettings::MiscSettings(wxScrolledWindow* parent, wxFlexGridSizer* sizer, wxS
 	checkLayline = new wxCheckBox(parent, wxID_ANY, _("Show Laylines"), wxDefaultPosition, wxDefaultSize, 0);
 	sizer->Add(checkLayline, 0, wxALL, 5);
 
+	checkAutopilot = new wxCheckBox(parent, wxID_ANY, _("Autopilot"), wxDefaultPosition, wxDefaultSize, 0);
+	sizer->Add(checkAutopilot, 0, wxALL, 5);
+
 	checkMultiCanvas = new wxCheckBox(parent, wxID_ANY, _("Multi Canvas"), wxDefaultPosition, wxDefaultSize, 0);
 	sizer->Add(checkMultiCanvas, 0, wxALL, 5);
 
@@ -73,11 +76,14 @@ MiscSettings::MiscSettings(wxScrolledWindow* parent, wxFlexGridSizer* sizer, wxS
 	checkStartLine->Connect(wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler(MiscSettings::OnStartlineChanged), NULL, this);
 	checkLayline->Connect(wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler(MiscSettings::OnLaylineChanged), NULL, this);
 	checkMultiCanvas->Connect(wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler(MiscSettings::OnCanvasChanged), NULL, this);
+	checkAutopilot->Connect(wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler(MiscSettings::OnAutopilotChanged), NULL, this);
 
 	checkWindAngle->SetValue(showWindAngles);
 	checkStartLine->SetValue(showStartline);
 	checkLayline->SetValue(showLayLines);
 	checkMultiCanvas->SetValue(showMultiCanvas);
+	checkAutopilot->SetValue(showAutopilot);
+
 }
 
 MiscSettings::~MiscSettings() {
@@ -85,7 +91,8 @@ MiscSettings::~MiscSettings() {
 	checkStartLine->Disconnect(wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler(MiscSettings::OnStartlineChanged), NULL, this);
 	checkLayline->Disconnect(wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler(MiscSettings::OnLaylineChanged), NULL, this);
 	checkMultiCanvas->Disconnect(wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler(MiscSettings::OnCanvasChanged), NULL, this);
-
+	checkAutopilot->Disconnect(wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler(MiscSettings::OnAutopilotChanged), NULL, this);
+	
 }
 
 void MiscSettings::OnWindAngleChanged(wxCommandEvent& event) {
@@ -104,6 +111,9 @@ void MiscSettings::OnCanvasChanged(wxCommandEvent& event) {
 	showMultiCanvas = checkMultiCanvas->GetValue();
 }
 
+void MiscSettings::OnAutopilotChanged(wxCommandEvent& event) {
+	showAutopilot = checkAutopilot->GetValue();
+}
 
 
 BasicSettings::BasicSettings(wxScrolledWindow* parent, wxFlexGridSizer* sizer, wxString name) : SettingsTemplate(parent, sizer, name) {

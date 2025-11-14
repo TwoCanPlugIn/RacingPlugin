@@ -25,7 +25,7 @@
 
 #include "racing_replay.h"
 
-Racing_Replay::Racing_Replay( DriverHandle driver, wxString fileName) : wxThread(wxTHREAD_DETACHED) {
+Racing_Replay::Racing_Replay( DriverHandle driver, wxFileName fileName) : wxThread(wxTHREAD_DETACHED) {
 	commsInterface = driver;
 	logFile = fileName;
 }
@@ -258,15 +258,6 @@ int Racing_Replay::MapGarbageCollector(void) {
 	return staleEntries;
 }
 
-wxThread::ExitCode Racing_Replay::Entry() {
-	Play();
-	return ExitCode(0);
-}
-
-void Racing_Replay::OnExit() {
-	logFileStream.close();
-}
-
 void Racing_Replay::ProcessData(CanHeader header, std::vector<unsigned char> payload, int payload_Length) {
 	
 	// Write to the loopback adapter
@@ -294,7 +285,7 @@ void Racing_Replay::ProcessData(CanHeader header, std::vector<unsigned char> pay
 
 	std::stringstream stream;
 	
-	stream << "NMEA2000 COM5 ";
+	stream << "NMEA2000 COM99 ";
 	stream << header.pgn;
 	stream << " 93 ";
 	stream << payload.size() + 11;
@@ -376,7 +367,54 @@ unsigned long long Racing_Replay::GetTimeInMicroseconds() {
 #endif
 }
 
-void Racing_Replay::Play() {
+void Racing_Replay::PlayNMEA0183() {
+
+	std::vector<wxString> sentences = {
+		"$GPGGA,175244.43,3824.17,S,14435.86,E,1,10,0.98,1113.0,M,-21.3,M,25,10*5C"
+		"$GPGLL,3824.17,S,14435.86,E,175244.43.00,A,A*7E",
+		"$HCHDG,213.0,7.5,E,0.0,W*52",
+		"$GPRMC,175244.43,A,3824.17,S,14435.86,E,012.00,213.00,071125,8.5,E,A*22",
+		"$WIMWV,190.0,R,11.4,N,A*1F",
+		"$SDDPT,3.0,-0.3,100.0*79",
+		"$SDVHW,,T,,M,012.0,N,006.5,K*42",
+		"$IIRSA,10,A,,V*56",
+		"$ERRPM,E,0,2000,,A*42",
+		"$ERXDR,P,300000,P,ENGINEOIL#0,C,89.5,C,ENGINE#0,U,13.4,V,ALTERNATOR#0,G,250,,Engine#0*47",
+		"$ERXDR,E,15,P,Fuel#0,E,80,P,FRESHWATER#0#0,E,50,P,FRESHWATER#1,E,75,P,FRESHWATER#2*67"
+	};
+
+	CommDriverResult result;
+
+	while (IsRunning()) {
+		if (TestDestroy()) {
+			break;
+		}
+		// This is the format for NMEA 0183 
+		// nmea0183 loopback WIMWV $WIMWV,295.6,R,007.2,N,A*2E		
+		// Don't have any VDR files, so just send stuff
+		for (auto sentence : sentences) {
+			// Need to extract the talkerid and  from the nmea sentence to
+			// construct the nmea 0183 loopback format
+			sentence.Prepend(" ");
+			size_t commaPos = sentence.find(',');
+			sentence.Prepend(sentence.substr(2, commaPos - 2));
+			sentence.Prepend("nmea0183 com66 ");
+
+			std::string sentenceToSend = sentence.ToStdString();
+			// Send it
+			auto sharedPointer = std::make_shared<std::vector<unsigned char>>(sentenceToSend.begin(), sentenceToSend.end());
+			result = WriteCommDriver(commsInterface, sharedPointer);
+
+			wxLogMessage("Racing Plugin, Result: %d, %s", result, sentence);
+			
+		}
+		// Wait one second before resending
+		Sleep(1000);
+	}
+}
+
+
+void Racing_Replay::PlayNMEA2000() {
 
 	// (1542794024.860693) can0 1CFF1906#419F010B00000000
 	const std::regex candump("^\\(([0-9]+.[0-9]+)\\)\\s(slcan|vcan|can)[0-9]\\s([0-9A-F]{8})#([0-9A-F]{16})$");
@@ -391,9 +429,9 @@ void Racing_Replay::Play() {
 
 	std::string inputLine;
 
-	logFileStream.open(logFile.ToStdString(), std::ios::in);
+	logFileStream.open(logFile.GetFullPath().ToStdString(), std::ios::in);
 
-	while (!logFileStream.eof()) {
+	while (!logFileStream.eof() && IsRunning()) {
 
 		if (TestDestroy()) {
 			break;
@@ -413,7 +451,7 @@ void Racing_Replay::Play() {
 				// Some candump logs may have nanosecond precision....
 				// Convert to milliseconds
 				wxThread::Sleep(static_cast<unsigned int>(1000 * (endTime - startTime)));
-				
+
 				startTime = endTime;
 
 			}
@@ -439,5 +477,27 @@ void Racing_Replay::Play() {
 			ConvertHexStringToByteArray((const unsigned char*)match[4].str().c_str(), 8, &frame);
 			AssembleFastMessage(header, frame);
 		}
+		// BUG BUG Should log that it is nt a candump log file
 	}
+	wxLogMessage("Racing Plugin, Replay Thread Exiting");
 }
+
+wxThread::ExitCode Racing_Replay::Entry() {
+	// Determine from the file extension if it is a candump or nmea 0183 log file
+	if (logFile.GetExt().compare("log") == 0) {
+		wxLogMessage("Racing Plugin, Playing NMEA 2000 candump log file: %s", logFile.GetFullPath());
+		PlayNMEA2000();
+	}
+	if (logFile.GetExt().compare("txt") == 0) {
+		wxLogMessage("Racing Plugin, Playing NMEA 0183 text file: %s", logFile.GetFullPath());
+		PlayNMEA0183();
+	}
+
+	return ExitCode(0);
+}
+
+void Racing_Replay::OnExit() {
+	logFileStream.close();
+	wxLogMessage("Racing Plugin, Replay thread exiting, log file closed");
+}
+

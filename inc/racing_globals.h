@@ -57,6 +57,8 @@ extern bool showMultiCanvas;
 extern bool generatePGN130306;
 // If we calculate true wind angle and speed and transmit the NMEA MWV Sentence
 extern bool generateMWVSentence;
+// If we override the core Active Route console with our own Autopilot Display
+extern bool showAutopilot;;
 // Not currently implemented
 extern int tackingAngle;
 // Default value for the Countdown timer interval

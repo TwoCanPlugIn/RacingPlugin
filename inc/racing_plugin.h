@@ -185,7 +185,7 @@ private:
 	RacingWindow* racingWindow;
 
 	// Replay candump log file
-	Racing_Replay* replay;
+	Racing_Replay* replayThread;
 
 	// Reference to the OpenCPN window handle
 	wxWindow *parentWindow;
@@ -199,7 +199,7 @@ private:
 	int stopLogFileToolbarId;
 
 	// Context Menu id's
-	int racingContextMenuId;
+	int windWizardContextMenuId;
 	int alertContextMenuId;
 	int dscContextMenuId;
 	int rteContextMenuId;
@@ -215,6 +215,7 @@ private:
 
 	// "Wind Wizard" gauge
 	WindWizard* windWizard;
+
 	// Settings Toolbox dialog
 	RacingToolbox* racingToolbox;
 
@@ -243,11 +244,11 @@ private:
 	DriverHandle ocpnMessageHandle;
 
 	// Attempting to find the "internal" driver.
-	void FindMessageDriver(std::string name);
+	void FindInternalMessageDriver(std::string name);
 
 	// Returns the first interface for a requested protocol;
 	// either NMEA 2000 or NMEA 0183
-	DriverHandle GetNetworkInterface(std::string protocol);
+	DriverHandle GetNetworkInterfaceV1(std::string protocol);
 
 	// Same as above but using std::find
 	DriverHandle GetNetworkInterfaceV2(std::string protocol);
@@ -273,7 +274,7 @@ private:
 	// Calculate NMEA 0183 XOR Checksum
 	wxString ComputeChecksum(wxString sentence);
 
-	// Maintain positions for the next waypoint / racing mark, so that a bearing can be calculated
+	// Maintain positions for the next waypoint/racing mark, so that a bearing can be calculated
 	bool isWaypointActive = false;
 	double waypointBearing, waypointDistance;
 

@@ -41,7 +41,7 @@
 #include <wx/bitmap.h>
 #include <wx/rawbmp.h>
 
-
+// Used for testing Jon Gough's bitmap problem
 #include <wx/msw/bitmap.h>
 
 
@@ -150,7 +150,7 @@ RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_118(ppimgr), wxEvtHand
 	racingWindow = nullptr;
 	racingToolbox = nullptr;
 	racingSettings = nullptr;
-	replay = nullptr;
+	replayThread = nullptr;
 
 	// Initialize the plugin bitmap
 	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + "data" + wxFileName::GetPathSeparator();
@@ -241,24 +241,19 @@ int RacingPlugin::Init(void) {
 
 	// Add the toolbar button 
 	// BUG BUG Note that OpenCPN does not implement the rollover state
+	// This toolbar button toggles the display of the race start dialog
 	racingToolbarId = InsertPlugInToolSVG(PLUGIN_COMMON_NAME, normalIcon, 
 		rolloverIcon, toggledIcon, wxITEM_CHECK, PLUGIN_COMMON_NAME, PLUGIN_SHORT_DESCRIPTION, NULL, -1, 0, this);
 
-	// Log File Play ToolbarId
+	// Log File Play/Stop ToolbarId
+	// Uses the loopback interface to replay NMEA 0183, NMEA 2000 & SignalK logs
+	// Invokes racing_replay class which converts candump logs to the loopback "format"
 	normalIcon = pluginFolder + "vdr_play.svg";
-	toggledIcon = pluginFolder + "vdr_play_toggled.svg";
+	toggledIcon = pluginFolder + "vdr_stop.svg";
 	rolloverIcon = pluginFolder + "vdr_play_rollover.svg";
 
 	playLogFileToolbarId = InsertPlugInToolSVG("Play", normalIcon,
 		rolloverIcon, toggledIcon, wxITEM_CHECK, "Play", "Play Candump Log File", NULL, -1, 0, this);
-
-	// Log File Stop ToolbarId
-	normalIcon = pluginFolder + "vdr_stop.svg";
-	toggledIcon = pluginFolder + "vdr_stop_toggled.svg";
-	rolloverIcon = pluginFolder + "vdr_stop_rollover.svg";
-
-	stopLogFileToolbarId = InsertPlugInToolSVG("Stop", normalIcon,
-		rolloverIcon, toggledIcon, wxITEM_CHECK, "Stop", "Stop Playing Log File", NULL, -1, 0, this);
 
 	// Default state for displaying the Countdown Timer dialog
 	isCountdownTimerVisible = false;
@@ -266,13 +261,13 @@ int RacingPlugin::Init(void) {
 	// Examples of adding a context menu items
 	// This menu item is used to display the "Wind Wizard" gauge
 	wxMenuItem* wizardMenu = new wxMenuItem(NULL, WINDWIZARD_MENU, "Wind Wizard", "a funky gauge", wxITEM_NORMAL, NULL);
-	racingContextMenuId = AddCanvasContextMenuItem(wizardMenu, this);
+	windWizardContextMenuId = AddCanvasContextMenuItem(wizardMenu, this);
 
 	// This menu item raises core OpenCPN notifications
 	wxMenuItem* alertMenu = new wxMenuItem(NULL, ALERT_MENU, "Raise Alert", "OCPN Notifications", wxITEM_NORMAL, NULL);
 	alertContextMenuId = AddCanvasContextMenuItem(alertMenu, this);
 
-	// This menu is used to test different things
+	// I just use this menu is used to test different things
 	wxMenuItem* playbackMenu = new wxMenuItem(NULL, TEST_MENU, "Test", "Adhoc Testing", wxITEM_NORMAL, NULL);
 	testContextMenuId = AddCanvasContextMenuItem(playbackMenu, this);
 
@@ -375,6 +370,10 @@ int RacingPlugin::Init(void) {
 	// Wire up the event handler to receive events from the Countdown Timer dialog
 	Connect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
 
+	// Get handles for the different network interfaces
+	// BUG BUG Broken, GetActiveDrivers is not valid until afterwards 
+	//InitializeNetwork();
+	
 	// Instantiate the "Wind Wizard" gauge
 	windWizard = new WindWizard(parentWindow);
 
@@ -390,6 +389,9 @@ int RacingPlugin::Init(void) {
 	auiManager->AddPane(windWizard, paneInfo);
 	auiManager->Update();
 	auiManager->Connect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
+
+	// Wire up the event handler to receive events from the Countdown Timer dialog
+	Connect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
 
 	// Notify OpenCPN what events we want to receive callbacks for
 	return (WANTS_CONFIG | WANTS_PREFERENCES | INSTALLS_TOOLBOX_PAGE |
@@ -411,7 +413,8 @@ void RacingPlugin::LateInit(void) {
 	oneSecondTimer->Connect(wxEVT_TIMER, wxTimerEventHandler(RacingPlugin::OnTimerElapsed), NULL, this);
 	oneSecondTimer->Start(1000, wxTIMER_CONTINUOUS);
 
-	InitializeNetwork();
+	// BUG BUG Broken, GetActiveDrivers is not valid until afterwards 
+	//InitializeNetwork();
 
 }
 
@@ -425,15 +428,15 @@ bool RacingPlugin::DeInit(void) {
 	if (oneSecondTimer->IsRunning()) {
 		oneSecondTimer->Stop();
 	}
-
+	// Disconnect the timer event handler
 	oneSecondTimer->Disconnect(wxEVT_TIMER, wxTimerEventHandler(RacingPlugin::OnTimerElapsed), NULL, this);
 
 
-	// if replaying a log file, cleanup
-	if (replay != nullptr) {
-		if (replay->IsRunning()) {
+	// If replaying a log file, cleanup
+	if (replayThread != nullptr) {
+		if (replayThread->IsRunning()) {
 			wxThread::ExitCode exitCode;
-			replay->Delete(&exitCode, wxTHREAD_WAIT_BLOCK);
+			replayThread->Delete(&exitCode, wxTHREAD_WAIT_BLOCK);
 		}
 	}
 
@@ -465,7 +468,7 @@ void RacingPlugin::UpdateAuiStatus(void) {
 
 	if (auiManager->GetPane(PLUGIN_COMMON_NAME).IsOk()) {
 		auiManager->GetPane(PLUGIN_COMMON_NAME).Show(isWindWizardVisible);
-		SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
+		SetCanvasContextMenuItemGrey(windWizardContextMenuId, isWindWizardVisible);
 	}
 }
 
@@ -475,15 +478,15 @@ void RacingPlugin::OnPaneClose(wxAuiManagerEvent& event) {
 	if (event.GetPane()->name ==  PLUGIN_COMMON_NAME) {
 		isWindWizardVisible = !isWindWizardVisible;
 		// Toggle the context menu item
-		SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
+		SetCanvasContextMenuItemGrey(windWizardContextMenuId, isWindWizardVisible);
 	}
 	else {
 		event.Skip();
 	}
 }
 
-// Get the latitude & longitude where the cursor is located on the canvas. 
-// Can also another API to convert from latitide & longitude to pixel points.
+// Get the latitude & longitude where the cursor is located on the canvas.  Can also another 
+// API to perform the reverse, converting from latitide & longitude to pixel points.
 // Requires WANTS_CURSOR_LATLON 
 void RacingPlugin::SetCursorLatLon(double lat, double lon) {
 
@@ -574,7 +577,6 @@ void RacingPlugin::SetCurrentViewPort(PlugIn_ViewPort& vp) {
 
 	// Persist the viewport as it is used by GetCanvasLLPix 
 	viewPort = vp;
-
 }
 
 
@@ -671,47 +673,56 @@ void RacingPlugin::OnToolbarToolCallback(int id) {
 		}
 	}
 	else if (id == playLogFileToolbarId) {
-		// Create a file open dialog, and replay a candump file using the loopback driver
-		wxString fileName;
+		if (replayThread == nullptr) {
 
-		wxFileDialog fileOpenDialog;
-		fileOpenDialog.SetDirectory(wxStandardPaths::Get().GetDocumentsDir());
-		fileOpenDialog.SetMessage("Open Log File");
-		fileOpenDialog.SetPosition(wxDefaultPosition);
-		fileOpenDialog.SetSize(wxSize(300, 300));
-		fileOpenDialog.SetExtraStyle(wxFD_OPEN | wxFD_FILE_MUST_EXIST);
-		fileOpenDialog.SetWildcard("Candump Log files (*.log)|*.log|Comma Separated files (*.csv)|*.csv|Text files (*.txt)|*.txt");
-		fileOpenDialog.EnableFullScreenView(false);
+			// BUG BUG Temporary Workaround
+			InitializeNetwork();
 
-		
-		if (fileOpenDialog.ShowModal() == wxID_OK) {
-			wxMessageBox(wxString::Format("Path: %s\nDirectory: %s\nName: %s",
-				fileOpenDialog.GetPath(),
-				fileOpenDialog.GetDirectory(),
-				fileOpenDialog.GetFilename()));
+			// Create a file open dialog, and replay a candump file using the loopback driver
+			wxString fileName;
 
+			wxFileDialog fileOpenDialog;
+			fileOpenDialog.SetDirectory(wxStandardPaths::Get().GetDocumentsDir());
+			fileOpenDialog.SetMessage("Open Log File");
+			fileOpenDialog.SetPosition(wxDefaultPosition);
+			fileOpenDialog.SetSize(wxSize(300, 300));
+			fileOpenDialog.SetExtraStyle(wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+			fileOpenDialog.SetWildcard("Candump (*.log)|*.log|Comma Separated Variable (*.csv)|*.csv|Text files (*.txt)|*.txt");
+			fileOpenDialog.EnableFullScreenView(false);
+
+			if (fileOpenDialog.ShowModal() == wxID_OK) {
+
+				wxFileName filePath(fileOpenDialog.GetPath());
+
+				wxMessageBox(wxString::Format("File Path: %s\nFile Name: %s\nFile Ext: %s\nCmp: %d",
+					filePath.GetFullPath(), filePath.GetFullName(), filePath.GetExt(),
+					filePath.GetExt().compare("log")));
+
+				if (filePath.IsOk()) {
+					// BUG BUG Contemplate parsing either NMEA 2000 or NMEA 0183
+					// BUG BUG Consider using std::unique_ptr, std::make_unique
+					replayThread = new Racing_Replay(loopbackHandle, filePath);
+
+					replayThread->Run();
+				}
+			}
 		}
+		else {
+			// Toggle the play button
+			SetToolbarItemState(playLogFileToolbarId, false);
 
-		auto filePath = fileOpenDialog.GetPath();
+			// And stop the replay thread
+			if (replayThread != nullptr) {
+				if (replayThread->IsRunning()) {
 
-		if (filePath.Length() > 0) {
-			// BUG BUG Finish work on the candump replay class
-			replay = new Racing_Replay(loopbackHandle, filePath);
-
-			replay->Run();
-
-		}
-
-
-	}
-
-	else if (id == stopLogFileToolbarId) {
-
-		// Toggle the play button
-		SetToolbarItemState(playLogFileToolbarId, false);
-		if (replay->IsRunning()) {
-			wxThread::ExitCode exitCode;
-			replay->Delete(&exitCode, wxTHREAD_WAIT_BLOCK);
+					wxThread::ExitCode exitCode;
+					replayThread->Delete(&exitCode, wxTHREAD_WAIT_BLOCK);
+					if (exitCode == (wxThread::ExitCode)wxTHREAD_NO_ERROR) {
+						wxLogMessage("Racing Plugin, Replay thread exit code: %d", exitCode);
+					}
+				}
+				replayThread = nullptr;
+			}
 		}
 	}
 }
@@ -720,15 +731,15 @@ void RacingPlugin::OnToolbarToolCallback(int id) {
 void RacingPlugin::OnContextMenuItemCallback(int id) {
 	
 	// Toggle the visibility of the Race Start timer dialog
-	if (id == racingContextMenuId) {
+	if (id == windWizardContextMenuId) {
 		isWindWizardVisible = !isWindWizardVisible;
-		SetCanvasContextMenuItemGrey(racingContextMenuId, isWindWizardVisible);
+		SetCanvasContextMenuItemGrey(windWizardContextMenuId, isWindWizardVisible);
 		auiManager->GetPane(PLUGIN_COMMON_NAME).Show(isWindWizardVisible);
 		auiManager->Update();
 	}
 
 	else if (id == testContextMenuId) {
-
+		// Testing icons for Jon Gough's bug
 		wxArrayString iconNames = GetIconNameArray();
 
 		wxString icons;
@@ -738,7 +749,6 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 
 		}
 		wxMessageBox(icons,	"Icon Names");
-
 
 		auto p = std::find(iconNames.begin(), iconNames.end(), "mob"); //"1st-Active-Waypoint");
 		if (p != iconNames.end()) {
@@ -750,14 +760,6 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 				markBitmap.IsOk() ? "OK" : "Not OK",
 				markBitmap.GetWidth(),
 				markBitmap.GetHeight()));	
-
-			
-			//markBitmap.LoadFile("D:\\Code\\wxWidgets\\samples\\image\\horse.bmp",wxBITMAP_TYPE_BMP);
-			//wxMessageBox(wxString::Format("Horse Bitmap is %s, Width: %d, Height: %d",
-			//	markBitmap.IsOk() ? "OK" : "Not OK",
-			//	markBitmap.GetWidth(),
-			//	markBitmap.GetHeight()));
-
 			
 			wxNativePixelData data(markBitmap);
 
@@ -854,7 +856,7 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 		
 		falseDialog->SetSizer(falseDialogSizer);
 		if (wxID_OK == falseDialog->ShowModal()) {
-			wxMessageBox("OK");
+			wxMessageBox("OK", "Notification Dialog Result");
 		}
 
 #endif
@@ -916,7 +918,6 @@ void RacingPlugin::OnContextMenuItemCallbackExt(int id, std::string obj_ident, s
 		if (!currentWaypoint.IsEmpty()) {
 
 			wxMessageBox(wxString::Format("Current Waypoint (GUID)%s", currentWaypoint), "Active Waypoint", wxOK);
-
 		}
 
 		// This was for Tony (Antipole's) bug.
@@ -1003,11 +1004,12 @@ void RacingPlugin::ShowPreferencesDialog(wxWindow* parent) {
 	//}
 	//delete racingSettings;
 
-	// BUG BUG Testing new settings UI design
+	// BUG BUG Testing new settings UI design, similar to Visual Studio
+	// Investigate how to perform the search stuff
 	racingOptions = new RacingOptions(parent,wxID_ANY, "Settings" , parent->FromDIP(wxSize(500, 400)));
 	if (wxID_OK == racingOptions->ShowModal()) {
-		wxMessageBox("Settings to save");
-
+		// BUG BUG Could also implement persisting the settings here
+		wxMessageBox("Settings to save", "Racing Plugin Options");
 	}
 	if (racingOptions != nullptr) {
 		delete racingOptions;
@@ -1034,7 +1036,6 @@ bool RacingPlugin::RenderOverlayMultiCanvas(wxDC& dc, PlugIn_ViewPort* vp,
 
 		if (dc.IsOk()) {
 
-			
 			if ((canvasIndex == 0) || ((canvasIndex == 1) && (showMultiCanvas))) {
 
 				if (showStartline) {
@@ -1495,6 +1496,7 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 	// OCPN_CORE_SIGNALK
 	// OCPN_OPENGL_CONFIG
 	// WMM_VARIATION_BOAT
+	// WMM_VARIATION_BOAT_REQUEST
 	// WMM_WINDOW_SHOWN
 	// WMM_WINDOW_HIDDEN
 	// AIS
@@ -1504,6 +1506,7 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 	// OCPN_RTE_ACTIVATED
 	// OCPN_RTE_DEACTIVATED
 	// OCPN_RTE_ENDED
+	// OCPN_RTE_REQUEST
 	// GRIB_VALUES
 
 	wxJSONReader jsonReader;
@@ -1512,8 +1515,10 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 	// display bearing to waypoint etc. 
 
 	if (message_id == "OpenCPN Config") {
+
 	}
 	else if (message_id == "OCPN_WPT_CREATED") {
+		// I think this was for testing a PR I had contemplated when a waypoint was added
 		SendSystemNotification(message_body);
 	}
 	else if (message_id == "OCPN_OPENGL_CONFIG") {
@@ -1821,6 +1826,7 @@ void RacingPlugin::LoadSettings(void) {
 		configSettings->Read("Laylines", &showLayLines, false);
 		configSettings->Read("WindAngles", &showWindAngles, false);
 		configSettings->Read("DualCanvas", &showMultiCanvas, false);
+		configSettings->Read("Autopilot", &showAutopilot, false);
 		configSettings->Read("StartTimer", &defaultTimerValue, 300);
 		configSettings->Read("TackingAngle", &tackingAngle, 45);
 		configSettings->Read("Visible", &isWindWizardVisible, false);
@@ -1842,6 +1848,7 @@ void RacingPlugin::SaveSettings(void) {
 		configSettings->Write("StartLineBias", showStartline);
 		configSettings->Write("Laylines", showLayLines);
 		configSettings->Write("DualCanvas", showMultiCanvas);
+		configSettings->Write("Autopilot", showAutopilot);
 		configSettings->Write("WindAngles", showWindAngles);
 		configSettings->Write("TackingAngle", tackingAngle);
 		configSettings->Write("StartTimer", defaultTimerValue);
@@ -1939,13 +1946,16 @@ void RacingPlugin::InitializeNetwork() {
 }
 
 // Retrieves the first interface for the selected protocol
-// Need to add a direction.
 DriverHandle RacingPlugin::GetNetworkInterfaceV2(std::string desiredProtocol) {
-	
+
 	wxLogMessage("Racing Plugin, Number of Active Drivers: %d", GetActiveDrivers().size());
 
 	for (const auto& driver : GetActiveDrivers()) {
 		const auto& attributes = GetAttributes(driver);
+		// Debug Dump out all of teh key value pairs
+		for (auto it : attributes) {
+			wxLogMessage("Debug: Key: %s, Value: %s", it.first, it.second);
+		}
 		// If none of the std::map entries have a protocol attribute, do the next for loop iteration
 		if (attributes.find("protocol") == attributes.end())
 			continue;
@@ -1955,7 +1965,7 @@ DriverHandle RacingPlugin::GetNetworkInterfaceV2(std::string desiredProtocol) {
 			if (attributes.find("ioDirection")!= attributes.end()) {
 				// Found a driver that supports output
 				if ((attributes.at("ioDirection") == "IN/OUT") || (attributes.at("ioDirection") == "OUT")) {
-					wxLogMessage("Racing Plugin, Using %s for %s", driver, desiredProtocol);
+					wxLogMessage("Network Interface V2, Using %s for %s", driver, desiredProtocol);
 					return driver;
 				}
 			}
@@ -1966,7 +1976,8 @@ DriverHandle RacingPlugin::GetNetworkInterfaceV2(std::string desiredProtocol) {
 }
 
 // Attempting to find the internal message driver interface
-void RacingPlugin::FindMessageDriver(std::string infernalDriverName) {
+// Using find_if 
+void RacingPlugin::FindInternalMessageDriver(std::string infernalDriverName) {
 	const auto& drivers = GetActiveDrivers();
 	auto found = std::find_if(
 		drivers.begin(), drivers.end(), [infernalDriverName](const DriverHandle& h) {
@@ -2010,7 +2021,7 @@ DriverHandle RacingPlugin::GetNetworkInterfaceV3(std::string selectedProtocol) {
 // For NMEA 0183 it should also check if interface is an "output" interface
 // Available protocols include "nmea2000", "SignalK", "nmea0183", 
 // Note to self, Writing to SignalK is unsupported
-DriverHandle RacingPlugin::GetNetworkInterface(std::string selectedProtocol) {
+DriverHandle RacingPlugin::GetNetworkInterfaceV1(std::string selectedProtocol) {
 	wxLogMessage("Racing Plugin, Searching for: %s", selectedProtocol.c_str());
 	bool foundProtocol = false;
 	std::vector<DriverHandle> activeDrivers;
@@ -2085,7 +2096,7 @@ void RacingPlugin::CalculateTrueWind() {
 	trueWindDirection = fmod(trueWindAngle + headingTrue, 360.0f);
 }
 
-// Another algorithm for calculating Tue Wind
+// Another algorithm for calculating True Wind
 void RacingPlugin::CalculateTrueWindV2() {
 
 	double u, v;

@@ -96,6 +96,9 @@
 // "Wind Wizard" gauge, similar to B&G SailSteer
 #include "racing_gauge.h"
 
+// Autopilot Dialog
+#include "racing_autopilot.h"
+
 // Replay candump log files
 #include "racing_replay.h"
 
@@ -215,6 +218,12 @@ private:
 
 	// "Wind Wizard" gauge
 	WindWizard* windWizard;
+
+	// Autopilot dialog
+	RacingAutopilot* autopilot;
+
+	// Random number used for simulating stuff
+	int randomNumber;
 
 	// Settings Toolbox dialog
 	RacingToolbox* racingToolbox;
@@ -365,6 +374,19 @@ private:
 
 	// The Chart ViewPort
 	PlugIn_ViewPort viewPort;
+
+#if (OCPN_API_VERSION_MINOR >= 21)
+	std::shared_ptr<HostApi> hostApi;
+	std::shared_ptr<HostApi121> hostApi121;
+#endif
+
+	// BUG BUG Delete when testing complete. Used to verify some bug reports
+	// Jon Gough's Loading Plugin bitmaps in Drawing Plugin 
+	void TestBitmap();
+	// Verifying JSON message used to inject signalk data into loopback interface
+	void TestJson();
+	// Tony's bug for date/time and route/waypoint properties
+	const wxChar* ParseGPXDateTime(wxDateTime& dt, const wxChar* datetime);
 };
 
 #endif 

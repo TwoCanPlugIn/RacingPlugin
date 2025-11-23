@@ -285,7 +285,7 @@ void Racing_Replay::ProcessData(CanHeader header, std::vector<unsigned char> pay
 
 	std::stringstream stream;
 	
-	stream << "NMEA2000 COM99 ";
+	stream << "NMEA2000 BOGUS ";
 	stream << header.pgn;
 	stream << " 93 ";
 	stream << payload.size() + 11;
@@ -413,6 +413,41 @@ void Racing_Replay::PlayNMEA0183() {
 	}
 }
 
+void Racing_Replay::PlaySignalK() {
+	CommDriverResult result;
+	std::vector<std::string> signalKData = {
+		"{\"updates\":[{\"values\":[{\"path\":\"navigation.speedThroughWater\",\"value\":3.4}]}]}",
+		"{\"updates\":[{\"values\":[{\"path\":\"environment.depth.belowTransducer\",\"value\":123.4}]}]}",
+		"{\"updates\":[{\"values\":[{\"path\":\"environment.wind.angleApparent\",\"value\":1.57}]}]}",
+		"{\"updates\":[{\"values\":[{\"path\":\"environment.wind.speedApparent\",\"value\":12.3}]}]}",
+		"{\"updates\":[{\"values\":[{\"path\":\"navigation.position\",\"value\":{\"longitude\":-128.50,\"latitude\":48.25}}]}]}"
+	};
+
+	while (IsRunning()) {
+		if (TestDestroy()) {
+			break;
+		}
+
+		for (const auto& it : signalKData) {
+			std::stringstream stream;
+			stream << "SignalK "; // Must be SignalK to identify the protocol
+			stream << "DoesThisReally.Matter "; // Unimportant, although usually the SignalK Path
+			stream << "192.168.2.63:3000 "; // Unimportant although it is the IP address & port
+			stream << it;
+
+			auto sharedPointer = std::make_shared<std::vector<unsigned char>>(stream.str().begin(), stream.str().end());
+			result = WriteCommDriver(commsInterface, sharedPointer);
+
+			if (result != RESULT_COMM_NO_ERROR) {
+				wxLogMessage("Racing Plugin, SignalK Log File error: %d", result);
+			}
+			// Wait one second before resending
+			Sleep(1000);
+		}
+	}
+
+}
+
 
 void Racing_Replay::PlayNMEA2000() {
 
@@ -491,6 +526,10 @@ wxThread::ExitCode Racing_Replay::Entry() {
 	if (logFile.GetExt().compare("txt") == 0) {
 		wxLogMessage("Racing Plugin, Playing NMEA 0183 text file: %s", logFile.GetFullPath());
 		PlayNMEA0183();
+	}
+	if (logFile.GetExt().compare("csv") == 0) {
+		wxLogMessage("Racing Plugin, Playing SignalK log file: %s", logFile.GetFullPath());
+		PlaySignalK();
 	}
 
 	return ExitCode(0);

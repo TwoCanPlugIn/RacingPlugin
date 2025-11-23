@@ -1,5 +1,3 @@
-// https://stackoverflow.com/questions/65374455/wxthreaddelete-hangs-forever
-
 // Copyright(C) 2018-2025 by Steven Adler
 //
 // This file is part of Racing plugin for OpenCPN.
@@ -31,6 +29,8 @@
 // 1.3 - 13/02/2025 SignalK/Messaging Listeners.
 // 1.4 - 1/6/2025 OpenCPN API 1.20, Notifications, ContextMenuExt
 // 1.5 - 20/10/2025 OpenCPN API 1.21, loopback driver, other API's of dubious benefit
+// 1.6 - 10/11/2025 Autopilot dialog testing
+// 1.7 - 20/11/2025 OpenCPN API 1.21 using new HostAPI
 // BUG BUG Note Broken OCPN Methods in 5.11: SetDefaults, OnSetupOptions, SetupToolboxPanel
 // BUG BUG Investigate changing new/delete to std::unique_ptr/std::make_unique
 
@@ -38,90 +38,16 @@
 
 #include <wx/window.h>
 
+// Used for testing Jon Gough's bitmap problem
 #include <wx/bitmap.h>
 #include <wx/rawbmp.h>
-
-// Used for testing Jon Gough's bitmap problem
 #include <wx/msw/bitmap.h>
-
 
 // Debug spew via UDP
 wxDatagramSocket* debugSocket;
 wxIPV4address addrLocal;
 wxIPV4address addrPeer;
 
-// Used for testing Antipole's Bug - Delete when closed
-const wxChar* ParseGPXDateTime(wxDateTime& dt, const wxChar* datetime) {
-	long sign, hrs_west, mins_west;
-	const wxChar* end;
-
-	// Skip any leading whitespace
-	while (isspace(*datetime)) datetime++;
-
-	// Skip (and ignore) leading hyphen
-	if (*datetime == wxT('-')) datetime++;
-
-	// Parse and validate ISO 8601 date/time string
-	if ((end = dt.ParseFormat(datetime, wxT("%Y-%m-%dT%T"))) != NULL) {
-		// Invalid date/time
-		if (*end == 0) return NULL;
-
-		// ParseFormat outputs in UTC if the controlling
-		// wxDateTime class instance has not been initialized.
-
-		// Date/time followed by UTC time zone flag, so we are done
-		else if (*end == wxT('Z')) {
-			end++;
-			return end;
-		}
-
-		// Date/time followed by given number of hrs/mins west of UTC
-		else if (*end == wxT('+') || *end == wxT('-')) {
-			// Save direction from UTC
-			if (*end == wxT('+'))
-				sign = 1;
-			else
-				sign = -1;
-			end++;
-
-			// Parse hrs west of UTC
-			if (isdigit(*end) && isdigit(*(end + 1)) && *(end + 2) == wxT(':')) {
-				// Extract and validate hrs west of UTC
-				wxString(end).ToLong(&hrs_west);
-				if (hrs_west > 12) return NULL;
-				end += 3;
-
-				// Parse mins west of UTC
-				if (isdigit(*end) && isdigit(*(end + 1))) {
-					// Extract and validate mins west of UTC
-					wxChar mins[3];
-					mins[0] = *end;
-					mins[1] = *(end + 1);
-					mins[2] = 0;
-					wxString(mins).ToLong(&mins_west);
-					if (mins_west > 59) return NULL;
-
-					// Apply correction
-					dt -= sign * wxTimeSpan(hrs_west, mins_west, 0, 0);
-					return end + 2;
-				}
-				else
-					// Missing mins digits
-					return NULL;
-			}
-			else
-				// Missing hrs digits or colon
-				return NULL;
-		}
-		else
-			// Unknown field after date/time (not UTC, not hrs/mins
-			//  west of UTC)
-			return NULL;
-	}
-	else
-		// Invalid ISO 8601 date/time
-		return NULL;
-}
 
 // The class factories, used to create and destroy instances of the PlugIn
 extern "C" DECL_EXP opencpn_plugin* create_pi(void *ppimgr) {
@@ -151,6 +77,7 @@ RacingPlugin::RacingPlugin(void *ppimgr) : opencpn_plugin_118(ppimgr), wxEvtHand
 	racingToolbox = nullptr;
 	racingSettings = nullptr;
 	replayThread = nullptr;
+	autopilot = nullptr;
 
 	// Initialize the plugin bitmap
 	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + "data" + wxFileName::GetPathSeparator();
@@ -173,6 +100,11 @@ RacingPlugin::~RacingPlugin(void) {
 }
 
 int RacingPlugin::Init(void) {
+
+#if (OCPN_API_VERSION_MINOR >= 21)
+	hostApi = std::move(GetHostApi());
+	hostApi121 = std::dynamic_pointer_cast<HostApi121>(hostApi);
+#endif
 
 	// Maintain a reference to the OpenCPN window to use as the parent Window for plugin dialogs
 	parentWindow = GetOCPNCanvasWindow();
@@ -231,7 +163,7 @@ int RacingPlugin::Init(void) {
 #endif
 	
 	// Load icons for the toolbar
-	// The race start dialog
+	// Race Start Dialog
 	wxString pluginFolder = GetPluginDataDir(PLUGIN_PACKAGE_NAME) + wxFileName::GetPathSeparator() + "data" + wxFileName::GetPathSeparator();
 
 	// This assumes the plugin is using Scaled Vector Graphics (SVG)
@@ -247,7 +179,8 @@ int RacingPlugin::Init(void) {
 
 	// Log File Play/Stop ToolbarId
 	// Uses the loopback interface to replay NMEA 0183, NMEA 2000 & SignalK logs
-	// Invokes racing_replay class which converts candump logs to the loopback "format"
+	// Invokes racing_replay class which depeding on log file name extension
+	// sends NMEA 2000, NMEA 0183 & SignalK using the loopback "format"
 	normalIcon = pluginFolder + "vdr_play.svg";
 	toggledIcon = pluginFolder + "vdr_stop.svg";
 	rolloverIcon = pluginFolder + "vdr_play_rollover.svg";
@@ -267,11 +200,12 @@ int RacingPlugin::Init(void) {
 	wxMenuItem* alertMenu = new wxMenuItem(NULL, ALERT_MENU, "Raise Alert", "OCPN Notifications", wxITEM_NORMAL, NULL);
 	alertContextMenuId = AddCanvasContextMenuItem(alertMenu, this);
 
-	// I just use this menu is used to test different things
+	// I just use this menu item to test different things
 	wxMenuItem* playbackMenu = new wxMenuItem(NULL, TEST_MENU, "Test", "Adhoc Testing", wxITEM_NORMAL, NULL);
 	testContextMenuId = AddCanvasContextMenuItem(playbackMenu, this);
 
 #if (OCPN_API_VERSION_MINOR >= 20)
+	// Adds context menu items to sub menus
 	// Valid Sub Menu Names "Route", " Waypoint", "Track", "AIS")
 
 	// This menu item is added to the AIS Sub Menu
@@ -281,11 +215,12 @@ int RacingPlugin::Init(void) {
 	// This menu item is added to the Route Sub Menu
 	wxMenuItem* rteMenu = new wxMenuItem(NULL, RTE_MENU, "To NMEA 2000", "Send to NMEA 2000", wxITEM_NORMAL, NULL);
 	rteContextMenuId = AddCanvasContextMenuItemExt(rteMenu, this, "Route");
+#endif
 
-	// One of the new 1.21 API's enables toggling display of route waypoint names
+#if (OCPN_API_VERSION_MINOR >= 21)
+	// This menu item invokes one of the new 1.21 API's; toggling the display of route waypoint names
 	wxMenuItem* wptMenu = new wxMenuItem(NULL, RTE_MENU, "Toggle Waypoint Names", "Show or Hide Route Waypoints", wxITEM_NORMAL, NULL);
 	wptContextMenuId = AddCanvasContextMenuItemExt(wptMenu, this, "Route");
-
 #endif
 
 	// Set up the listeners. NMEA 0183, NMEA 2000 and SignalK are used to obtain data 
@@ -371,8 +306,14 @@ int RacingPlugin::Init(void) {
 	Connect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
 
 	// Get handles for the different network interfaces
-	// BUG BUG Broken, GetActiveDrivers is not valid until afterwards 
-	//InitializeNetwork();
+	// BUG BUG This was broken in earlier 5.13 builds. Now fixed
+	// GetActiveDrivers was not valid until after Init & LateInit were invoked. 
+	wxLogMessage("Racing Plugin, Call to Initialize Network in Init");
+	InitializeNetwork();
+
+	// Override Autopilot Control - Allows plugin to use its own algorithms
+	// to steer to the waypoint
+	// PlugInHandleAutopilotRoute(showAutopilot);
 	
 	// Instantiate the "Wind Wizard" gauge
 	windWizard = new WindWizard(parentWindow);
@@ -390,8 +331,22 @@ int RacingPlugin::Init(void) {
 	auiManager->Update();
 	auiManager->Connect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
 
-	// Wire up the event handler to receive events from the Countdown Timer dialog
-	Connect(wxEVT_RACE_DIALOG_EVENT, wxCommandEventHandler(RacingPlugin::OnDialogEvent));
+	// Autopilot Dialog Testing a control with linear compass, rudder angle and rolling highway
+	autopilot = new RacingAutopilot(parentWindow);
+
+	paneInfo.Name(AUTOPILOT);
+	paneInfo.Dockable(false);
+	paneInfo.Caption("Autopilot");
+	paneInfo.CloseButton(true);
+	paneInfo.GripperTop(true);
+	paneInfo.Float();
+	paneInfo.MinSize(autopilot->GetMinSize());
+	paneInfo.Show(isWaypointActive);
+	auiManager->AddPane(autopilot, paneInfo);
+	auiManager->Update();
+
+	// Seed random number generator
+	srand(time(NULL));
 
 	// Notify OpenCPN what events we want to receive callbacks for
 	return (WANTS_CONFIG | WANTS_PREFERENCES | INSTALLS_TOOLBOX_PAGE |
@@ -412,9 +367,10 @@ void RacingPlugin::LateInit(void) {
 	oneSecondTimer = new wxTimer();
 	oneSecondTimer->Connect(wxEVT_TIMER, wxTimerEventHandler(RacingPlugin::OnTimerElapsed), NULL, this);
 	oneSecondTimer->Start(1000, wxTIMER_CONTINUOUS);
-
-	// BUG BUG Broken, GetActiveDrivers is not valid until afterwards 
-	//InitializeNetwork();
+	
+	// BUG BUG Broken in 5.13
+	wxLogMessage("Racing Plugin, Call to Initialize Network in LateInit");
+	InitializeNetwork();
 
 }
 
@@ -431,7 +387,6 @@ bool RacingPlugin::DeInit(void) {
 	// Disconnect the timer event handler
 	oneSecondTimer->Disconnect(wxEVT_TIMER, wxTimerEventHandler(RacingPlugin::OnTimerElapsed), NULL, this);
 
-
 	// If replaying a log file, cleanup
 	if (replayThread != nullptr) {
 		if (replayThread->IsRunning()) {
@@ -441,10 +396,14 @@ bool RacingPlugin::DeInit(void) {
 	}
 
 	// Disconnect the Advanced User Interface manager
+	auiManager->DetachPane(autopilot);
+	delete autopilot;
+
 	auiManager->DetachPane(windWizard);
-	auiManager->Disconnect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
 	delete windWizard;
 
+	auiManager->Disconnect(wxEVT_AUI_PANE_CLOSE, wxAuiManagerEventHandler(RacingPlugin::OnPaneClose), NULL, this);
+	
 	// Cleanup the toolbox page here because OnSetupToolbox is only called once at Startup.
 	// If we were to perform the cleanup in the OnCloseToolboxPane method, we can never initialize it again.
 	DeleteOptionsPage(toolBoxWindow);
@@ -470,6 +429,10 @@ void RacingPlugin::UpdateAuiStatus(void) {
 		auiManager->GetPane(PLUGIN_COMMON_NAME).Show(isWindWizardVisible);
 		SetCanvasContextMenuItemGrey(windWizardContextMenuId, isWindWizardVisible);
 	}
+
+	if (auiManager->GetPane(AUTOPILOT).IsOk()) {
+		auiManager->GetPane(AUTOPILOT).Show(isWaypointActive);
+	}
 }
 
 // Keep the context menu synchronized when the AUI pane is closed
@@ -479,6 +442,12 @@ void RacingPlugin::OnPaneClose(wxAuiManagerEvent& event) {
 		isWindWizardVisible = !isWindWizardVisible;
 		// Toggle the context menu item
 		SetCanvasContextMenuItemGrey(windWizardContextMenuId, isWindWizardVisible);
+	}
+	else if (event.GetPane()->name == AUTOPILOT) {
+		// Shouldn't be able to close the dialog if a waypoint is active
+		if (auiManager->GetPane(AUTOPILOT).IsOk()) {
+			auiManager->GetPane(AUTOPILOT).Show(isWaypointActive);
+		}
 	}
 	else {
 		event.Skip();
@@ -628,6 +597,7 @@ wxBitmap* RacingPlugin::GetPlugInBitmap() {
 // Pre shutdown, Perhaps do some cleanup here. 
 // However, doesn't allow a plugin to veto shutdown which would be useful for autopilots
 // Note for Windows, wxWidgets Yes/No dialogs do not display Question Mark icon
+// Unfortunately this API doesn't allow a plugin to veto shutdown....
 #if (OCPN_API_VERSION_MINOR >= 19)
 void RacingPlugin::PreShutdownHook() {
 
@@ -675,9 +645,6 @@ void RacingPlugin::OnToolbarToolCallback(int id) {
 	else if (id == playLogFileToolbarId) {
 		if (replayThread == nullptr) {
 
-			// BUG BUG Temporary Workaround
-			InitializeNetwork();
-
 			// Create a file open dialog, and replay a candump file using the loopback driver
 			wxString fileName;
 
@@ -699,7 +666,6 @@ void RacingPlugin::OnToolbarToolCallback(int id) {
 					filePath.GetExt().compare("log")));
 
 				if (filePath.IsOk()) {
-					// BUG BUG Contemplate parsing either NMEA 2000 or NMEA 0183
 					// BUG BUG Consider using std::unique_ptr, std::make_unique
 					replayThread = new Racing_Replay(loopbackHandle, filePath);
 
@@ -739,88 +705,9 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 	}
 
 	else if (id == testContextMenuId) {
-		// Testing icons for Jon Gough's bug
-		wxArrayString iconNames = GetIconNameArray();
-
-		wxString icons;
-		for (auto it : iconNames) {
-			icons += it;
-			icons += "\n";
-
-		}
-		wxMessageBox(icons,	"Icon Names");
-
-		auto p = std::find(iconNames.begin(), iconNames.end(), "mob"); //"1st-Active-Waypoint");
-		if (p != iconNames.end()) {
-			wxMessageBox(wxString::Format("Found Icon: %s", p->data()));
-			wxBitmap markBitmap = GetIcon_PlugIn(p->data());
-			markBitmap.SaveFile(wxString::Format("d:\\logs\\%s.bmp", p->data()), 
-				wxBitmapType::wxBITMAP_TYPE_BMP);
-			wxMessageBox(wxString::Format("Bitmap is %s, Width: %d, Height: %d", 
-				markBitmap.IsOk() ? "OK" : "Not OK",
-				markBitmap.GetWidth(),
-				markBitmap.GetHeight()));	
-			
-			wxNativePixelData data(markBitmap);
-
-			if (!data) {
-				wxMessageBox("No Native Pixel Data", "Native Pixel");
-			}
-			else {
-				wxMessageBox(wxString::Format("Native Pixel Data\nHeight: %d, Width %d", data.GetHeight(),
-					data.GetWidth()), 
-					"Native Pixel");
-			}
-
-			wxNativePixelData::Iterator it(data);
-			bool NonZero = true;
-			wxString pixelString;
-			for (int y = 0; y < data.GetHeight(); ++y) {
-				wxNativePixelData::Iterator rowStart = it;
-
-				for (int x = 0; x < data.GetWidth(); ++x, ++it) {
-
-					pixelString += wxString::Format("%d, %d: %d %d %d\n",
-						y, x, it.Red(), it.Green(), it.Blue());
-
-					if ((it.Red() != 0) || (it.Green() !=0 ) || (it.Blue() != 0)) {
-						NonZero = false;
-					}
-				}
-
-				it = rowStart;
-				it.OffsetY(data, 1);
-			}
-
-			wxMessageBox(pixelString, "Native Pixel Data");
-
-
-			wxMessageBox(wxString::Format("BitMap is %s", NonZero ? "Dummy Bitmap" : "Really Valid", "Native Pixel Data"));
-
-
-			// Convert To Image
-
-			wxImage markImage = markBitmap.ConvertToImage();
-
-			
-			unsigned char* ptr = markImage.GetData();
-			bool validImage = false;
-			for (int h = 0; h < markImage.GetHeight(); h++) {
-				for (int w = 0; w < markImage.GetWidth(); w++) {
-					if (*ptr != 0) {
-						validImage = true;
-					}
-					ptr++;
-				}
-				ptr++;
-			}
-
-			wxMessageBox(wxString::Format("Image is %s", validImage ? "Valid" : "Invalid"), "Image Data");
-
-		}
-		else {
-			wxMessageBox("Icon Not found");
-		}
+		
+		//TestJson();
+		//TestBitmap();
 	}
 
 	// Raise an OpenCPN Alert (different to a platform OS notification)
@@ -832,10 +719,10 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 		// Display the resulting GUID created by OpenCPN to identify the alert
 		wxMessageBox(wxString::Format("Notification GUID: %s", notificationResponse), "Notification");
 #else
-		//wxMessageBox(wxString::Format("Notifications not supported on API level: %d", OCPN_API_VERSION_MINOR));
 		wxDialog* falseDialog = new wxDialog(parentWindow, wxID_ANY, "Notification Error");
 		wxBoxSizer* falseDialogSizer = new wxBoxSizer(wxOrientation::wxVERTICAL);
-		wxStaticText* label = new wxStaticText(falseDialog, wxID_ANY, "This is an error message");
+		wxStaticText* label = new wxStaticText(falseDialog, wxID_ANY, 
+			wxString::Format("Notifications not supported on API level: %d", OCPN_API_VERSION_MINOR));
 		falseDialogSizer->Add(label);
 
 		wxStdDialogButtonSizer* buttonSizer = new wxStdDialogButtonSizer();
@@ -843,8 +730,6 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 
 		wxButton* okButton = new wxButton(falseDialog, wxID_OK, "OK");
 		wxButton* cancelButton = new wxButton(falseDialog, wxID_CANCEL, "Cancel");
-		//buttonSizer->AddButton(okButton);
-		//buttonSizer->AddButton(cancelButton);
 		buttonSizer->AddStretchSpacer(2);
 		buttonSizer->Add(okButton,0, wxALL | wxBORDER, 5);
 		buttonSizer->Add(cancelButton, 0, wxALL | wxBORDER , 5);
@@ -858,12 +743,11 @@ void RacingPlugin::OnContextMenuItemCallback(int id) {
 		if (wxID_OK == falseDialog->ShowModal()) {
 			wxMessageBox("OK", "Notification Dialog Result");
 		}
-
 #endif
 	}
 }
 
-#if (OCPN_API_VERSION_MINOR >= 21)
+#if (OCPN_API_VERSION_MINOR >= 20)
 // Context MenuItems that may be added to AIS, Routes, Tracks and Waypoints context menu sub-items
 void RacingPlugin::OnContextMenuItemCallbackExt(int id, std::string obj_ident, std::string obj_type, double lat, double lon) {
 
@@ -873,12 +757,6 @@ void RacingPlugin::OnContextMenuItemCallbackExt(int id, std::string obj_ident, s
 		wxMessageBox(wxString::Format("Object Id: %d\nObject Identifier (MMSI): %s\nObject Type: %s\nLatitude: %s\nLongitude: %s",
 			id, obj_ident.c_str(), obj_type.c_str(),
 			toSDMM_PlugIn(1, lat, true), toSDMM_PlugIn(2, lon, true)), "AIS Target Information", wxOK | wxICON_INFORMATION);
-	}
-
-	// Show or Hide Route Waypoint Names
-	else if (id == wptContextMenuId) {
-		toggleWaypointNames = !toggleWaypointNames;
-		ShowRouteWaypointNames(obj_ident, toggleWaypointNames);
 	}
 	// Handle the Context Menu call back if the object was a Route
 	else if (id == rteContextMenuId) {
@@ -892,15 +770,21 @@ void RacingPlugin::OnContextMenuItemCallbackExt(int id, std::string obj_ident, s
 		if (!currentRoute.IsEmpty()) {
 			std::unique_ptr<PlugIn_Route> activeRoute;
 			activeRoute = GetRoute_Plugin(currentRoute);
-			wxMessageBox(wxString::Format("Route Name: %s\n", activeRoute->m_NameString), "Route Details", wxOK);
+			wxMessageBox(wxString::Format("Name: %s\nGuid: %s", activeRoute->m_NameString, 
+				activeRoute->m_GUID), "Route Details", wxOK);
+#if (OCPN_API_VERSION_MINOR >= 21)		
+			// The following is using the new Host API
+			if (hostApi121) {
+				std::unique_ptr<HostApi121::Route> activeRouteEx = hostApi121->GetRoute(currentRoute);
 
-			std::unique_ptr<PlugIn_Route_ExV3> activeRouteV3;
-			activeRouteV3 = GetRouteExV3_Plugin("698dffff-03be-4b5f-9c4d-edcf3d230000");
-			wxMessageBox(wxString::Format("Name: %s\nSpeed: %f\nColour: %s\nETD: %s\nTime Format: %s", 
-				activeRouteV3->m_NameString,
-				activeRouteV3->m_PlannedSpeed,
-				activeRouteV3->m_Colour, activeRouteV3->m_PlannedDeparture.FormatISOCombined(' '),
-				activeRouteV3->m_TimeDisplayFormat, "Route ExV3"));
+				wxMessageBox(wxString::Format("Name: %s\nSpeed: %f\nColour: %s\nETD: %s\nTime Format: %s",
+					activeRouteEx->m_NameString,
+					activeRouteEx->m_PlannedSpeed,
+					activeRouteEx->m_Colour,
+					activeRouteEx->m_PlannedDeparture.FormatISOCombined(' '),
+					activeRouteEx->m_TimeDisplayFormat), "Route ExV3");
+			}
+#endif
 
 			Plugin_WaypointList* list = activeRoute->pWaypointList;
 
@@ -929,12 +813,19 @@ void RacingPlugin::OnContextMenuItemCallbackExt(int id, std::string obj_ident, s
 			wxDateTime dt;
 			ParseGPXDateTime(dt, sdt);
 			wxMessageBox(dt.FormatISOCombined(),"Antipole's Date Time bug");
-
 		}
 
 	}
-}
 #endif
+#if (OCPN_API_VERSION_MINOR >= 21)
+	// Show or Hide Route Waypoint Names - A new API in 1.21
+	else if (id == wptContextMenuId) {
+		toggleWaypointNames = !toggleWaypointNames;
+		hostApi121->ShowRouteWaypointNames(obj_ident, toggleWaypointNames);
+	}
+#endif
+
+}
 
 
 // Set default values when the plugin is installed
@@ -954,7 +845,7 @@ void RacingPlugin::SetDefaults(void) {
 
 // Add our own tab on the OpenCPN toolbox, under the "User" settings. Ordinarily plugins 
 // would add their own settings dialog launched using the ShowPreferencesDialog method
-// OnSetupOptions seems to be invoked at Startup. In 5.13 is it broken ?
+// OnSetupOptions seems to be invoked at Startup. In 5.10 it seemed to be broken ?
 void RacingPlugin::OnSetupOptions(void) {
 
 	// Get a handle to our options page window, add a sizer to it, to which we will add our toolbox panel
@@ -968,7 +859,7 @@ void RacingPlugin::OnSetupOptions(void) {
 	SendSystemNotification("OnSetupOptions invoked");
 }
 
-// Get the number of panels that we install in the toolbox.Never seen this invoked.
+// Get the number of panels that we install in the toolbox. Never seen this invoked.
 int RacingPlugin::GetToolboxPanelCount(void) {
 
 	SendSystemNotification("GetToolboxPanelCount invoked");
@@ -1021,9 +912,11 @@ void RacingPlugin::SetColorScheme(PI_ColorScheme cs) {
 
 	if ((cs == PI_GLOBAL_COLOR_SCHEME_DUSK) || (cs == PI_GLOBAL_COLOR_SCHEME_NIGHT)) {
 		windWizard->SetNightMode(true);
+		autopilot->SetNightMode(true);
 	}
 	else {
 		windWizard->SetNightMode(false);
+		autopilot->SetNightMode(false);
 	}
 }
 
@@ -1133,6 +1026,8 @@ bool RacingPlugin::RenderGLOverlayMultiCanvas(wxGLContext* pcontext, PlugIn_View
 			RacingGraphics* rc = new RacingGraphics();
 
 			if ((canvasIndex == 0) || ((canvasIndex == 1) && (showMultiCanvas))) {
+
+				rc->SetBrush(wxColour(100, 100, 100, 50));
 
 				if (showStartline) {
 
@@ -1262,11 +1157,13 @@ bool RacingPlugin::RenderGLOverlayMultiCanvas(wxGLContext* pcontext, PlugIn_View
 
 // When a route or waypoint is active, OpenCPN provides distance, bearing, waypoint name etc. to the waypoint
 void RacingPlugin::SetActiveLegInfo(Plugin_Active_Leg_Info& pInfo) {
+	// This is used for the Wind Wizard Gauge
 	waypointBearing = pInfo.Btw;
-	// We also set this variable upon reception of OCPN_WPT... and OCPN_RTE... messages
-	isWaypointActive = true;
-	// Could be useful for the autopilot plugin
-	wxLogMessage("Racing Plugin, SetActiveLegInfo: %s", pInfo.wp_name);
+	// These are used for the Autopilot dialog
+	autopilot->SetCrossTrackError(pInfo.Xte);
+	autopilot->SetDestinationName(pInfo.wp_name);
+	autopilot->SetBearing(pInfo.Btw);
+	autopilot->SetDistance(pInfo.Dtw);
 }
 
 // Receive Position, Course, Speed and Heading from OpenCPN
@@ -1444,9 +1341,16 @@ void RacingPlugin::HandleN2K_130306(ObservedEvt ev) {
 // Parse OpenCPN Core Messaging, New API in 1.19 Now working for both REST and Plugin Messaging
 #if (OCPN_API_VERSION_MINOR >= 19)
 void RacingPlugin::HandleMsgData(ObservedEvt ev) {
+
 	PluginMsgId msg_id = PluginMsgId("OCPN_WPT_ACTIVATED");
 	std::string message = GetPluginMsgPayload(msg_id, ev);
-	isWaypointActive = true;
+	if (message.size() > 0) {
+		// Note to self, message is formatted as JSON and contains:
+		// {"WP_activated" : "002", "GUID" : "6629ffff-ebf1-4d69-b497-72667ab3ffff"}
+		isWaypointActive = true;
+		auiManager->GetPane(AUTOPILOT).Show(isWaypointActive);
+		auiManager->Update();
+	}
 }
 #endif
 
@@ -1515,13 +1419,17 @@ void RacingPlugin::SetPluginMessage(wxString& message_id, wxString& message_body
 	// display bearing to waypoint etc. 
 
 	if (message_id == "OpenCPN Config") {
-
+		SendSystemNotification(wxString::Format("%s\n%s",message_id, message_body));
+	}
+	else if (message_id == "GLOBAL_SETTINGS_UPDATED") {
+		SendSystemNotification(wxString::Format("%s\n%s", message_id, message_body));
 	}
 	else if (message_id == "OCPN_WPT_CREATED") {
-		// I think this was for testing a PR I had contemplated when a waypoint was added
+		// I think I was testing a PR I had contemplated when a waypoint was added
 		SendSystemNotification(message_body);
 	}
 	else if (message_id == "OCPN_OPENGL_CONFIG") {
+		SendSystemNotification(wxString::Format("%s\n%s", message_id, message_body));
 	}
 	else if (message_id == "WMM_VARIATION_BOAT") {
 	}
@@ -1666,6 +1574,9 @@ void RacingPlugin::SendNMEA0183(wxString sentence) {
 
 	auto sharedPointer = std::make_shared<std::vector<uint8_t> >(std::move(payload));
 	result = WriteCommDriver(n183NetworkHandle, sharedPointer);
+	if (result != RESULT_COMM_NO_ERROR) {
+		wxLogMessage(_T("Racing Plugin, Error sending NMEA 0183 MWV Sentence, %s: %d"), n183NetworkHandle.c_str(), result);
+	}
 	
 }
 
@@ -1686,7 +1597,9 @@ void RacingPlugin::SendOCPNMessage(PluginMsgId msg_id, wxString message) {
 	// BUG BUG No idea how to get the Comm Driver handle, "internal" does not appear in the list of drivers
 	auto sharedPointer = std::make_shared<std::vector<uint8_t> >(std::move(payload));
 	result = WriteCommDriver(ocpnMessageHandle, sharedPointer);
-	wxLogMessage(_T("Racing Plugin, Debug, Send OCPN Message %s, %s, %d"), ocpnMessageHandle.c_str(), message, result);
+	if (result != RESULT_COMM_NO_ERROR) {
+		wxLogMessage(_T("Racing Plugin, Error sending OCPN Message %s, %s, %d"), ocpnMessageHandle.c_str(), message, result);
+	}
 }
 
 #endif
@@ -1702,7 +1615,9 @@ void RacingPlugin::GenerateTrueWindMessage(void) {
 		std::vector<uint8_t> payload(N2kMsg.Data, N2kMsg.Data + N2kMsg.GetAvailableDataLength());
 		auto sharedPointer = std::make_shared<std::vector<uint8_t>>(payload);
 		result = WriteCommDriverN2K(n2kNetworkHandle, 130306, 255, 5, sharedPointer);
-		wxLogMessage(_T("Racing Plugin, Debug, Send NMEA 2000 PGN 130306, %s: %d"), n2kNetworkHandle.c_str(), result);
+		if (result != RESULT_COMM_NO_ERROR) {
+			wxLogMessage(_T("Racing Plugin, Error sending NMEA 2000 PGN 130306, %s: %d"), n2kNetworkHandle.c_str(), result);
+		}
 	}
 }
 
@@ -1756,38 +1671,15 @@ void RacingPlugin::OnTimerElapsed(wxTimerEvent& ev) {
 			GenerateTrueWindMessage();
 		}
 
-		// Write to the loopback adapter
-		// NMEA 0183 works
-		//std::string sentence = "nmea0183 COM5 WIMWV $WIMWV,295.6,R,007.2,N,A*2E";
-		
-		// NMEA 2000 must be in Actisense format
-		// Opportunity for candump to actisense utility, Finish the replay class
-
-		// This is the "bastardised" output from VDR plugin, not sure what they are thinking...
-		//std::string sentence = "$PCDIN,130306,93130402FD01FF020000000008580202FE4AFAFFFFB1";
-		
-		// This the correct format for Chetco Seasmart, although not supported by the loopback driver 
-		//std::string sentence = "$PCDIN,01FD02,000C8472,09,04C300487FF8FFFF*55";
-
-		// This format works (and is documented somewhere)!
-		std::string sentence = "NMEA2000 COM5 130306 93 13 02 02 fd 01 ff 03 ff ff ff ff 08 24 cf 01 fe 4a fa ff ff 55";
-		
-		// This is the output from the Data Monitor but this format doesn't work
-		//std::string sentence = "1760484669972,NMEA2000,COM5,130306,93 13 04 02 fd 01 ff 02 00 00 00 00 08 24 cf 01 fe 4a fa ff ff 55";
-		
-		// This is the CSV output from Data Monitor, also doesn't work
-		//std::string sentence = "2025-10-15T01:11:07.765Z,NMEA2000,130306,93130402FD01FF0200000000081824cf01fe4afaffff";
-
-		// This is from the spec, although it is the "wrong" spec, and doesn't work
-		// std::string sentence = "2024-02-16T10:00:00.234Z,NMEA2000,130306,CAN0,15FD020A24cf01fe4afaffff ";
-		
-		CommDriverResult result;
-		auto sharedPointer = std::make_shared<std::vector<unsigned char>>(sentence.begin(), sentence.end());
-		result = WriteCommDriver(loopbackHandle, sharedPointer);
-		wxLogMessage(_T("Racing Plugin, Debug, Send Loopback %s, %s, %d"), loopbackHandle.c_str(), sentence, result);
-
-		// Every second could also take a screen capture
+		// Every second could also take a screen capture, see below
 		// CreateScreenShot();
+
+		// BUG BUG Just for testing the A/P Dialog
+		// Generate random number between +/- 5
+		randomNumber = (rand() % 10) - 5;
+		autopilot->SetHeading(headingMagnetic + randomNumber);
+		autopilot->SetRudderAngle(randomNumber);
+		autopilot->Refresh();
 	}
 }
 
@@ -1913,6 +1805,180 @@ void RacingPlugin::OnDialogEvent(wxCommandEvent& event) {
 	}
 }
 
+
+void RacingPlugin::TestBitmap() {
+	// Testing icons for Jon Gough's bug
+	wxArrayString iconNames = GetIconNameArray();
+
+	wxString icons;
+	for (auto it : iconNames) {
+		icons += it;
+		icons += "\n";
+
+	}
+	wxMessageBox(icons, "Icon Names");
+
+	auto p = std::find(iconNames.begin(), iconNames.end(), "mob"); //"1st-Active-Waypoint");
+	if (p != iconNames.end()) {
+		wxMessageBox(wxString::Format("Found Icon: %s", p->data()));
+		wxBitmap markBitmap = GetIcon_PlugIn(p->data());
+		markBitmap.SaveFile(wxString::Format("d:\\logs\\%s.bmp", p->data()),
+			wxBitmapType::wxBITMAP_TYPE_BMP);
+		wxMessageBox(wxString::Format("Bitmap is %s, Width: %d, Height: %d",
+			markBitmap.IsOk() ? "OK" : "Not OK",
+			markBitmap.GetWidth(),
+			markBitmap.GetHeight()));
+
+		wxNativePixelData data(markBitmap);
+
+		if (!data) {
+			wxMessageBox("No Native Pixel Data", "Native Pixel");
+		}
+		else {
+			wxMessageBox(wxString::Format("Native Pixel Data\nHeight: %d, Width %d", data.GetHeight(),
+				data.GetWidth()),
+				"Native Pixel");
+		}
+
+		wxNativePixelData::Iterator it(data);
+		bool NonZero = true;
+		wxString pixelString;
+		for (int y = 0; y < data.GetHeight(); ++y) {
+			wxNativePixelData::Iterator rowStart = it;
+
+			for (int x = 0; x < data.GetWidth(); ++x, ++it) {
+
+				pixelString += wxString::Format("%d, %d: %d %d %d\n",
+					y, x, it.Red(), it.Green(), it.Blue());
+
+				if ((it.Red() != 0) || (it.Green() != 0) || (it.Blue() != 0)) {
+					NonZero = false;
+				}
+			}
+
+			it = rowStart;
+			it.OffsetY(data, 1);
+		}
+
+		wxMessageBox(pixelString, "Native Pixel Data");
+
+
+		wxMessageBox(wxString::Format("BitMap is %s", NonZero ? "Dummy Bitmap" : "Really Valid", "Native Pixel Data"));
+
+
+		// Convert To Image
+
+		wxImage markImage = markBitmap.ConvertToImage();
+
+
+		unsigned char* ptr = markImage.GetData();
+		bool validImage = false;
+		for (int h = 0; h < markImage.GetHeight(); h++) {
+			for (int w = 0; w < markImage.GetWidth(); w++) {
+				if (*ptr != 0) {
+					validImage = true;
+				}
+				ptr++;
+			}
+			ptr++;
+		}
+
+		wxMessageBox(wxString::Format("Image is %s", validImage ? "Valid" : "Invalid"), "Image Data");
+
+	}
+	else {
+		wxMessageBox("Icon Not found");
+	}
+}
+
+// Used for testing Antipole's Bug - Delete when closed
+const wxChar* RacingPlugin::ParseGPXDateTime(wxDateTime& dt, const wxChar* datetime) {
+	long sign, hrs_west, mins_west;
+	const wxChar* end;
+
+	// Skip any leading whitespace
+	while (isspace(*datetime)) datetime++;
+
+	// Skip (and ignore) leading hyphen
+	if (*datetime == wxT('-')) datetime++;
+
+	// Parse and validate ISO 8601 date/time string
+	if ((end = dt.ParseFormat(datetime, wxT("%Y-%m-%dT%T"))) != NULL) {
+		// Invalid date/time
+		if (*end == 0) return NULL;
+
+		// ParseFormat outputs in UTC if the controlling
+		// wxDateTime class instance has not been initialized.
+
+		// Date/time followed by UTC time zone flag, so we are done
+		else if (*end == wxT('Z')) {
+			end++;
+			return end;
+		}
+
+		// Date/time followed by given number of hrs/mins west of UTC
+		else if (*end == wxT('+') || *end == wxT('-')) {
+			// Save direction from UTC
+			if (*end == wxT('+'))
+				sign = 1;
+			else
+				sign = -1;
+			end++;
+
+			// Parse hrs west of UTC
+			if (isdigit(*end) && isdigit(*(end + 1)) && *(end + 2) == wxT(':')) {
+				// Extract and validate hrs west of UTC
+				wxString(end).ToLong(&hrs_west);
+				if (hrs_west > 12) return NULL;
+				end += 3;
+
+				// Parse mins west of UTC
+				if (isdigit(*end) && isdigit(*(end + 1))) {
+					// Extract and validate mins west of UTC
+					wxChar mins[3];
+					mins[0] = *end;
+					mins[1] = *(end + 1);
+					mins[2] = 0;
+					wxString(mins).ToLong(&mins_west);
+					if (mins_west > 59) return NULL;
+
+					// Apply correction
+					dt -= sign * wxTimeSpan(hrs_west, mins_west, 0, 0);
+					return end + 2;
+				}
+				else
+					// Missing mins digits
+					return NULL;
+			}
+			else
+				// Missing hrs digits or colon
+				return NULL;
+		}
+		else
+			// Unknown field after date/time (not UTC, not hrs/mins
+			//  west of UTC)
+			return NULL;
+	}
+	else
+		// Invalid ISO 8601 date/time
+		return NULL;
+}
+
+// Attempting to write SignalK data to loopback interface. Not working
+// so verifying the JSON. Seems to be OK!
+void RacingPlugin::TestJson() {
+	wxString message_body;
+	wxJSONValue root;
+	wxJSONWriter writer;
+
+	root["updates"]["values"]["path"]["navigation"]["position"]["latitude"] = 48.0;
+	root["updates"]["values"]["path"]["navigation"]["position"]["longitude"] = -128.0;
+	
+	writer.Write(root, message_body);
+	wxMessageBox(message_body, "Test SignalK");
+
+}
+
 void RacingPlugin::InitializeNetwork() {
 
 	wxLogMessage("Racing Plugin, Initializing Network");
@@ -1948,11 +2014,13 @@ void RacingPlugin::InitializeNetwork() {
 // Retrieves the first interface for the selected protocol
 DriverHandle RacingPlugin::GetNetworkInterfaceV2(std::string desiredProtocol) {
 
+	assert(GetActiveDrivers().size() == 0);
+
 	wxLogMessage("Racing Plugin, Number of Active Drivers: %d", GetActiveDrivers().size());
 
 	for (const auto& driver : GetActiveDrivers()) {
 		const auto& attributes = GetAttributes(driver);
-		// Debug Dump out all of teh key value pairs
+		// Debug Dump out all of the key value pairs
 		for (auto it : attributes) {
 			wxLogMessage("Debug: Key: %s, Value: %s", it.first, it.second);
 		}

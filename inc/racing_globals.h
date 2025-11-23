@@ -41,6 +41,9 @@ extern bool isCountdownTimerVisible;
 // "Wind Wizard" gauge shown/hidden state
 extern bool isWindWizardVisible;
 
+// Autopilot Also used to determine if dialog shown/hidden
+extern bool isWaypointActive;
+
 // Bitmap used for both the plugin and dialogs
 extern wxBitmap pluginBitmap;
 
@@ -63,6 +66,9 @@ extern bool showAutopilot;;
 extern int tackingAngle;
 // Default value for the Countdown timer interval
 extern int defaultTimerValue;
+
+// Autopilot AUI Pane
+#define AUTOPILOT "AUTOPILOT_AUI_DIALOG"
 
 // Events etc.
 // Plugin receives events from the Countdown Timer dialog

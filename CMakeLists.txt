@@ -67,10 +67,10 @@ set(PACKAGE "Racing_Plugin") # This is the resultant dll Racing_Plugin_pi and Vi
 set(SHORT_DESCRIPTION "Racing Plugin, A simple tool for yacht racing")
 set(LONG_DESCRIPTION "Racing Plugun, A simple tool for yacht racing, Displays countdown timer, distance and time to start line") 
 set(VERSION_MAJOR "1")
-set(VERSION_MINOR "5")
+set(VERSION_MINOR "7")
 set(VERSION_PATCH "0")
 set(VERSION_TWEAK "0")
-set(VERSION_DATE "20/10/2025")
+set(VERSION_DATE "20/11/2025")
 set(OCPN_MIN_VERSION "ov50")
 set(OCPN_API_VERSION_MAJOR "1")
 set(OCPN_API_VERSION_MINOR "21")
@@ -175,6 +175,7 @@ SET(SOURCES src/racing_plugin.cpp
             src/racing_toolbox.cpp
             src/racing_toolboxbase.cpp
             src/racing_replay.cpp
+            src/racing_autopilot.cpp
 )
 SET(HEADERS inc/racing_plugin.h
             inc/racing_gauge.h
@@ -190,6 +191,7 @@ SET(HEADERS inc/racing_plugin.h
             inc/racing_toolbox.h
             inc/racing_toolboxbase.h
             inc/racing_replay.h
+            inc/racing_autopilot.h
 )
 
 add_definitions(-DPLUGIN_USE_SVG)

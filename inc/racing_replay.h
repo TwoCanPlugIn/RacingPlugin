@@ -91,6 +91,7 @@ private:
 	void Play();
 	void PlayNMEA0183();
 	void PlayNMEA2000();
+	void PlaySignalK();
 	
 	// The log file to be replayed
 	wxFileName logFile;
